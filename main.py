@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 app = FastAPI(title="call-gateway")
+logger = logging.getLogger("uvicorn.error")
 
 AccidentType = Literal["car", "slip_and_fall", "work", "other"]
 URGENCE_JOURS = 14
@@ -56,7 +57,7 @@ def call_ended(c: CallEnded):
         )
         reponse.raise_for_status()
     except httpx.HTTPError as erreur:
-        logging.warning("summary-worker injoignable : %r", erreur)
+        logger.warning("summary-worker injoignable : %r", erreur)
         raise HTTPException(
             status_code=502, detail="summary-worker indisponible"
         ) from erreur
@@ -67,3 +68,17 @@ def call_ended(c: CallEnded):
         "summary": reponse.json(),
         "worker_ms": duree_ms,
     }
+
+
+@app.post("/telnyx/webhook")
+def telnyx_webhook(event: dict):
+    data = event.get("data", {})
+    payload = data.get("payload", {})
+    logger.info(
+        "Telnyx %s | de %s vers %s | call_control_id=%s",
+        data.get("event_type"),
+        payload.get("from"),
+        payload.get("to"),
+        payload.get("call_control_id"),
+    )
+    return {"received": True}
