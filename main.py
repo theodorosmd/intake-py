@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Literal, Optional
+from typing import Literal
 
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -16,7 +16,7 @@ class IntakeCase(BaseModel):
     accident_date: date
     accident_type: AccidentType
     injured: bool
-    has_insurance: Optional[bool] = None
+    has_insurance: bool | None = None
 
 
 def is_urgent(c: IntakeCase) -> bool:

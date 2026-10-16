@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, ValidationError
 
@@ -12,7 +12,7 @@ class IntakeCase(BaseModel):
     accident_date: date
     accident_type: AccidentType
     injured: bool
-    has_insurance: Optional[bool] = None
+    has_insurance: bool | None = None
 
 
 bon = {
