@@ -120,15 +120,15 @@ def test_appel_complet_salutation_puis_reponse(monkeypatch, tmp_path):
     async def faux_ouvrir_stt():
         return stt
 
-    async def faux_llm(historique):
+    async def faux_llm(historique, faits=None):
         assert historique[-1] == {"role": "user", "content": "Hello"}
-        return "Hi, what is your name?"
+        yield "Hi, what is your name?"
 
     async def fausse_voix(texte):
         return texte.encode()  # à la place d'un vrai mp3
 
     monkeypatch.setattr(telnyx_stream, "ouvrir_stt", faux_ouvrir_stt)
-    monkeypatch.setattr(agent_vocal, "reponse_llm", faux_llm)
+    monkeypatch.setattr(agent_vocal, "phrases_llm", faux_llm)
     monkeypatch.setattr(agent_vocal, "synthese_vocale", fausse_voix)
     paquet = base64.b64encode(bytes([0xFF] * 160)).decode()  # 20 ms de silence
     with client.websocket_connect("/telnyx/media") as ws:
@@ -149,7 +149,7 @@ def test_appel_complet_salutation_puis_reponse(monkeypatch, tmp_path):
         marque_1 = ws.receive_json()
         reponse = ws.receive_json()
         marque_2 = ws.receive_json()
-        ws.send_json({"event": "mark", "mark": {"name": "tour-1"}})  # son joué
+        ws.send_json({"event": "mark", "mark": {"name": "tour-1-1"}})  # son joué
         for _ in range(50):  # 50 x 20 ms = 1 seconde
             ws.send_json({"event": "media", "media": {"payload": paquet}})
         ws.send_json({"event": "stop"})

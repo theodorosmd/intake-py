@@ -198,7 +198,7 @@ async def media_stream(ws: WebSocket):
                         stt = None
                     tampon.clear()
             elif evenement == "mark":
-                conv.fin_de_lecture()
+                conv.fin_de_lecture(message.get("mark", {}).get("name"))
             elif evenement == "stop":
                 logger.info("Stream arrete par Telnyx")
                 break

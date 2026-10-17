@@ -1,7 +1,9 @@
+import asyncio
 import logging
 import os
 import time
 import uuid
+from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -12,7 +14,25 @@ from pydantic import BaseModel, Field
 
 from telnyx_stream import router as telnyx_router
 
-app = FastAPI(title="call-gateway")
+
+async def prechauffer_salutation() -> None:
+    """Synthétise la salutation dès le démarrage : le premier appel n'attend plus ~3 s."""
+    import agent_vocal
+
+    try:
+        await agent_vocal.synthese_vocale(agent_vocal.SALUTATION)
+    except Exception as erreur:  # noqa: BLE001 — pas bloquant : elle sera faite au premier appel
+        logging.getLogger(__name__).warning("Salutation non préparée : %r", erreur)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    tache = asyncio.create_task(prechauffer_salutation())
+    yield
+    tache.cancel()
+
+
+app = FastAPI(title="call-gateway", lifespan=lifespan)
 logger = logging.getLogger("uvicorn.error")
 
 AccidentType = Literal["car", "slip_and_fall", "work", "other"]
