@@ -24,16 +24,35 @@ SALUTATION = (
 )
 
 
+def parametres_llm() -> dict:
+    """Où envoyer les appels LLM : au fournisseur directement, ou au proxy LiteLLM.
+
+    Avec LLM_API_BASE défini, LLM_MODEL est un nom connu du proxy (ex. openai/llm-agent)
+    et LLM_API_KEY une virtual key délivrée par le proxy, pas une clé OpenAI.
+    """
+    parametres = {"model": os.environ["LLM_MODEL"]}
+    base = os.getenv("LLM_API_BASE")
+    if base:
+        parametres["api_base"] = base
+        parametres["api_key"] = os.environ["LLM_API_KEY"]
+    return parametres
+
+
 async def reponse_llm(historique: list[dict]) -> str:
     """Envoie la conversation au LLM et renvoie sa réponse."""
+    parametres = parametres_llm()
     debut = time.perf_counter()
     reponse = await litellm.acompletion(
-        model=os.environ["LLM_MODEL"],
+        **parametres,
         messages=[{"role": "system", "content": CONSIGNES}, *historique],
         timeout=15,
     )
     texte = reponse.choices[0].message.content.strip()
-    logger.info("LLM : %d ms", (time.perf_counter() - debut) * 1000)
+    logger.info(
+        "LLM : %d ms (%s)",
+        (time.perf_counter() - debut) * 1000,
+        "via le proxy" if "api_base" in parametres else "direct",
+    )
     return texte
 
 
