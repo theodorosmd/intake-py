@@ -12,6 +12,7 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def agenda_vide():
     main.RESERVATIONS.clear()
+    main.RESERVATION_PAR_TEL.clear()
 
 
 def prochain(jour_semaine):
@@ -21,15 +22,15 @@ def prochain(jour_semaine):
     return jour
 
 
-def reserver(jour):
-    return client.post(
-        "/consultations",
-        json={
-            "caller_name": "John Miller",
-            "phone": "+15551234567",
-            "preferred_date": jour.isoformat(),
-        },
-    )
+def reserver(jour, phone="+15551234567", heure=None):
+    demande = {
+        "caller_name": "John Miller",
+        "phone": phone,
+        "preferred_date": jour.isoformat(),
+    }
+    if heure is not None:
+        demande["preferred_hour"] = heure
+    return client.post("/consultations", json=demande)
 
 
 def test_intake_renvoie_un_numero_de_dossier():
@@ -52,17 +53,41 @@ def test_intake_renvoie_un_numero_de_dossier():
 
 def test_reserve_le_premier_creneau_du_jour():
     lundi = prochain(0)
-    creneau = datetime.fromisoformat(reserver(lundi).json()["slot"])
+    r = reserver(lundi)
+    assert r.json()["status"] == "booked"
+    creneau = datetime.fromisoformat(r.json()["slot"])
     assert creneau.date() == lundi
     assert creneau.hour == 10
 
 
-def test_deux_reservations_ne_prennent_pas_le_meme_creneau():
+def test_deux_personnes_n_ont_pas_le_meme_creneau():
     lundi = prochain(0)
-    premier = reserver(lundi).json()["slot"]
-    second = reserver(lundi).json()["slot"]
+    premier = reserver(lundi, phone="+15550000001").json()["slot"]
+    second = reserver(lundi, phone="+15550000002").json()["slot"]
     assert premier != second
     assert datetime.fromisoformat(second).hour == 14
+
+
+def test_meme_appelant_deplace_sa_reservation():
+    lundi = prochain(0)
+    reserver(lundi)
+    data = reserver(lundi + timedelta(days=1)).json()
+    assert data["status"] == "rescheduled"
+    assert data["previous_slot_spoken"] is not None
+    assert len(main.RESERVATIONS) == 1
+
+
+def test_meme_numero_ecrit_differemment():
+    lundi = prochain(0)
+    reserver(lundi, phone="+1 555 123 4567")
+    reserver(lundi, phone="+15551234567")
+    assert len(main.RESERVATIONS) == 1
+
+
+def test_heure_minimum():
+    lundi = prochain(0)
+    creneau = datetime.fromisoformat(reserver(lundi, heure=15).json()["slot"])
+    assert creneau.hour == 16
 
 
 def test_samedi_reporte_au_lundi():

@@ -21,6 +21,7 @@ HEURES_CRENEAUX = [10, 14, 16]
 
 DOSSIERS: dict[str, dict] = {}
 RESERVATIONS: dict[datetime, str] = {}
+RESERVATION_PAR_TEL: dict[str, datetime] = {}
 
 
 class IntakeCase(BaseModel):
@@ -43,6 +44,7 @@ class ConsultationRequest(BaseModel):
     caller_name: str
     phone: str
     preferred_date: date
+    preferred_hour: int | None = Field(default=None, ge=0, le=23)
 
 
 def is_urgent(c: IntakeCase) -> bool:
@@ -50,18 +52,29 @@ def is_urgent(c: IntakeCase) -> bool:
     return c.injured and jours_ecoules < URGENCE_JOURS
 
 
-def premier_creneau_libre(a_partir_du: date) -> datetime:
+def chiffres(phone: str) -> str:
+    return "".join(c for c in phone if c.isdigit())
+
+
+def a_voix_haute(creneau: datetime) -> str:
+    return creneau.strftime("%A, %B %d at %I %p").replace(" 0", " ")
+
+
+def premier_creneau_libre(a_partir_du: date, heure_min: int | None = None) -> datetime:
     maintenant = datetime.now(NEW_YORK)
     jour = max(a_partir_du, maintenant.date())
     for _ in range(30):
         if jour.weekday() < 5:
             for heure in HEURES_CRENEAUX:
+                if heure_min is not None and heure < heure_min:
+                    continue
                 creneau = datetime(
                     jour.year, jour.month, jour.day, heure, tzinfo=NEW_YORK
                 )
                 if creneau > maintenant and creneau not in RESERVATIONS:
                     return creneau
         jour += timedelta(days=1)
+        heure_min = None
     raise HTTPException(status_code=409, detail="Aucun creneau libre sur 30 jours")
 
 
@@ -86,13 +99,23 @@ def receive_intake(case: IntakeCase):
 
 @app.post("/consultations")
 def book_consultation(demande: ConsultationRequest):
-    creneau = premier_creneau_libre(demande.preferred_date)
-    RESERVATIONS[creneau] = demande.caller_name
-    logger.info("Consultation reservee le %s", creneau.isoformat())
+    cle = chiffres(demande.phone)
+    nouveau = premier_creneau_libre(demande.preferred_date, demande.preferred_hour)
+    ancien = RESERVATION_PAR_TEL.pop(cle, None)
+    if ancien is not None:
+        RESERVATIONS.pop(ancien, None)
+    RESERVATIONS[nouveau] = demande.caller_name
+    RESERVATION_PAR_TEL[cle] = nouveau
+    logger.info(
+        "Consultation %s le %s",
+        "deplacee" if ancien else "reservee",
+        nouveau.isoformat(),
+    )
     return {
-        "status": "booked",
-        "slot": creneau.isoformat(),
-        "slot_spoken": creneau.strftime("%A, %B %d at %I %p").replace(" 0", " "),
+        "status": "rescheduled" if ancien else "booked",
+        "slot": nouveau.isoformat(),
+        "slot_spoken": a_voix_haute(nouveau),
+        "previous_slot_spoken": a_voix_haute(ancien) if ancien else None,
     }
 
 
