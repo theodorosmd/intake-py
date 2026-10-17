@@ -10,6 +10,8 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from telnyx_stream import router as telnyx_router
+
 app = FastAPI(title="call-gateway")
 logger = logging.getLogger("uvicorn.error")
 
@@ -155,3 +157,4 @@ def telnyx_webhook(event: dict):
         payload.get("call_control_id"),
     )
     return {"received": True}
+app.include_router(telnyx_router)
