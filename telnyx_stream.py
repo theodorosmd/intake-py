@@ -16,7 +16,7 @@ import websockets
 from dotenv import load_dotenv
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-import agent_vocal
+from conversation import Conversation
 
 load_dotenv()
 
@@ -80,7 +80,7 @@ async def ouvrir_stt():
     )
 
 
-async def lire_transcriptions(stt, tours=None) -> list[str]:
+async def lire_transcriptions(stt, tours=None, sur_parole=None) -> list[str]:
     """Affiche le texte au fil de l'eau, et signale chaque fin de phrase.
 
     Les morceaux définitifs (is_final) s'accumulent. La phrase part dans la
@@ -107,6 +107,8 @@ async def lire_transcriptions(stt, tours=None) -> list[str]:
             logger.warning("Erreur STT : %s", message["errors"])
             continue
         texte = message.get("transcript", "")
+        if texte and sur_parole is not None:
+            await sur_parole(texte)  # l'appelant parle : peut-être une interruption
         if texte and minuteur:
             minuteur.cancel()  # l'appelant parle encore
             minuteur = None
@@ -128,35 +130,12 @@ async def lire_transcriptions(stt, tours=None) -> list[str]:
     return finales
 
 
-async def parler(ws: WebSocket, texte: str) -> None:
-    """Synthétise le texte et l'envoie dans l'appel (mp3 en base64)."""
-    audio = await agent_vocal.synthese_vocale(texte)
-    payload = base64.b64encode(audio).decode()
-    await ws.send_json({"event": "media", "media": {"payload": payload}})
-
-
-async def boucle_agent(ws: WebSocket, tours: asyncio.Queue) -> None:
-    """Salue, puis répond à chaque phrase de l'appelant, une à la fois."""
-    historique = [{"role": "assistant", "content": agent_vocal.SALUTATION}]
-    try:
-        await parler(ws, agent_vocal.SALUTATION)
-    except Exception:
-        logger.exception("Salutation impossible")
+async def distribuer_tours(conv: Conversation, tours: asyncio.Queue) -> None:
+    """Salue, puis confie chaque phrase finie à la conversation, sans attendre."""
+    await conv.saluer()
     while True:
         phrase, fin_parole = await tours.get()
-        try:
-            historique.append({"role": "user", "content": phrase})
-            reponse = await agent_vocal.reponse_llm(historique)
-            historique.append({"role": "assistant", "content": reponse})
-            logger.info("AGENT : %s", reponse)
-            await parler(ws, reponse)
-            delai = (time.perf_counter() - fin_parole) * 1000
-            logger.info(
-                "Tour complet : %d ms entre le dernier mot compris et l'envoi de la voix",
-                delai,
-            )
-        except Exception:
-            logger.exception("Le tour a echoue, l'agent continue")
+        conv.nouveau_tour(phrase, fin_parole)
 
 
 @router.post("/telnyx/voice")
@@ -190,6 +169,7 @@ async def media_stream(ws: WebSocket):
     stt = None
     lecteur = None
     tours = asyncio.Queue()
+    conv = Conversation(ws)
     agent = None
     try:
         while True:
@@ -197,10 +177,12 @@ async def media_stream(ws: WebSocket):
             evenement = message.get("event")
             if evenement == "start":
                 logger.info("Stream demarre : %s", message["start"].get("media_format"))
-                agent = asyncio.create_task(boucle_agent(ws, tours))
+                agent = asyncio.create_task(distribuer_tours(conv, tours))
                 try:
                     stt = await ouvrir_stt()
-                    lecteur = asyncio.create_task(lire_transcriptions(stt, tours))
+                    lecteur = asyncio.create_task(
+                        lire_transcriptions(stt, tours, conv.appelant_parle)
+                    )
                 except (OSError, websockets.WebSocketException) as erreur:
                     logger.warning("Transcription indisponible : %s", erreur)
             elif evenement == "media":
@@ -215,6 +197,8 @@ async def media_stream(ws: WebSocket):
                         logger.warning("Transcription coupee")
                         stt = None
                     tampon.clear()
+            elif evenement == "mark":
+                conv.fin_de_lecture()
             elif evenement == "stop":
                 logger.info("Stream arrete par Telnyx")
                 break
@@ -224,6 +208,7 @@ async def media_stream(ws: WebSocket):
         logger.info("WebSocket fermee")
     if agent:
         agent.cancel()
+    await conv.terminer()
     logger.info(
         "%d paquets, %d octets, %.1f s d'audio", paquets, len(audio), len(audio) / 8000
     )

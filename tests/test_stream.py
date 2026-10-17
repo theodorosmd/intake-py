@@ -146,7 +146,10 @@ def test_appel_complet_salutation_puis_reponse(monkeypatch, tmp_path):
             }
         )
         salutation = ws.receive_json()
+        marque_1 = ws.receive_json()
         reponse = ws.receive_json()
+        marque_2 = ws.receive_json()
+        ws.send_json({"event": "mark", "mark": {"name": "tour-1"}})  # son joué
         for _ in range(50):  # 50 x 20 ms = 1 seconde
             ws.send_json({"event": "media", "media": {"payload": paquet}})
         ws.send_json({"event": "stop"})
@@ -156,6 +159,7 @@ def test_appel_complet_salutation_puis_reponse(monkeypatch, tmp_path):
         agent_vocal.SALUTATION
     )
     assert base64.b64decode(reponse["media"]["payload"]) == b"Hi, what is your name?"
+    assert marque_1["event"] == marque_2["event"] == "mark"
     audio_envoye = [d for d in stt.envoye if isinstance(d, bytes)]
     assert sum(len(d) for d in audio_envoye) == 8000  # tout le son est parti
     assert all(len(d) == 800 for d in audio_envoye)  # par morceaux de 100 ms
