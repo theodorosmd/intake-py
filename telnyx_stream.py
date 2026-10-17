@@ -5,6 +5,7 @@ import base64
 import json
 import logging
 import os
+import time
 import wave
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,8 @@ import httpx
 import websockets
 from dotenv import load_dotenv
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+import agent_vocal
 
 load_dotenv()
 
@@ -34,7 +37,9 @@ STT_PARAMS = {
     "sample_rate": "8000",
     "language": "en-US",
     "interim_results": "true",
+    "endpointing": "500",  # 500 ms de silence = fin de phrase
 }
+DELAI_FIN_DE_PHRASE = 0.8  # secondes sans nouveau texte = l'appelant a fini
 TAILLE_ENVOI = 800  # on regroupe 100 ms de son (8 000 octets/s) avant d'envoyer
 
 
@@ -75,23 +80,83 @@ async def ouvrir_stt():
     )
 
 
-async def lire_transcriptions(stt) -> list[str]:
-    """Affiche le texte au fil de l'eau et renvoie les phrases définitives."""
+async def lire_transcriptions(stt, tours=None) -> list[str]:
+    """Affiche le texte au fil de l'eau, et signale chaque fin de phrase.
+
+    Les morceaux définitifs (is_final) s'accumulent. La phrase part dans la
+    file `tours` quand la transcription signale la fin (speech_final), ou
+    quand aucun nouveau texte n'arrive pendant DELAI_FIN_DE_PHRASE.
+    """
     finales = []
+    phrase = []
+    dernier_final = 0.0
+    minuteur = None
+
+    def envoyer_tour():
+        if phrase and tours is not None:
+            tours.put_nowait((" ".join(phrase), dernier_final))
+        phrase.clear()
+
+    async def attendre_silence():
+        await asyncio.sleep(DELAI_FIN_DE_PHRASE)
+        envoyer_tour()
+
     async for brut in stt:
         message = json.loads(brut)
         if message.get("errors"):
             logger.warning("Erreur STT : %s", message["errors"])
             continue
         texte = message.get("transcript", "")
-        if not texte:
-            continue
-        if message.get("is_final"):
+        if texte and minuteur:
+            minuteur.cancel()  # l'appelant parle encore
+            minuteur = None
+        if texte and message.get("is_final"):
             finales.append(texte)
+            phrase.append(texte)
+            dernier_final = time.perf_counter()
             logger.info("APPELANT : %s", texte)
-        else:
+            minuteur = asyncio.create_task(attendre_silence())
+        elif texte:
             logger.info("   ... %s", texte)
+        if message.get("speech_final") or message.get("utterance_end"):
+            if minuteur:
+                minuteur.cancel()
+                minuteur = None
+            envoyer_tour()
+    if minuteur:
+        minuteur.cancel()
     return finales
+
+
+async def parler(ws: WebSocket, texte: str) -> None:
+    """Synthétise le texte et l'envoie dans l'appel (mp3 en base64)."""
+    audio = await agent_vocal.synthese_vocale(texte)
+    payload = base64.b64encode(audio).decode()
+    await ws.send_json({"event": "media", "media": {"payload": payload}})
+
+
+async def boucle_agent(ws: WebSocket, tours: asyncio.Queue) -> None:
+    """Salue, puis répond à chaque phrase de l'appelant, une à la fois."""
+    historique = [{"role": "assistant", "content": agent_vocal.SALUTATION}]
+    try:
+        await parler(ws, agent_vocal.SALUTATION)
+    except Exception:
+        logger.exception("Salutation impossible")
+    while True:
+        phrase, fin_parole = await tours.get()
+        try:
+            historique.append({"role": "user", "content": phrase})
+            reponse = await agent_vocal.reponse_llm(historique)
+            historique.append({"role": "assistant", "content": reponse})
+            logger.info("AGENT : %s", reponse)
+            await parler(ws, reponse)
+            delai = (time.perf_counter() - fin_parole) * 1000
+            logger.info(
+                "Tour complet : %d ms entre le dernier mot compris et l'envoi de la voix",
+                delai,
+            )
+        except Exception:
+            logger.exception("Le tour a echoue, l'agent continue")
 
 
 @router.post("/telnyx/voice")
@@ -124,15 +189,18 @@ async def media_stream(ws: WebSocket):
     paquets = 0
     stt = None
     lecteur = None
+    tours = asyncio.Queue()
+    agent = None
     try:
         while True:
             message = await ws.receive_json()
             evenement = message.get("event")
             if evenement == "start":
                 logger.info("Stream demarre : %s", message["start"].get("media_format"))
+                agent = asyncio.create_task(boucle_agent(ws, tours))
                 try:
                     stt = await ouvrir_stt()
-                    lecteur = asyncio.create_task(lire_transcriptions(stt))
+                    lecteur = asyncio.create_task(lire_transcriptions(stt, tours))
                 except (OSError, websockets.WebSocketException) as erreur:
                     logger.warning("Transcription indisponible : %s", erreur)
             elif evenement == "media":
@@ -154,6 +222,8 @@ async def media_stream(ws: WebSocket):
                 logger.info("Evenement stream : %s", evenement)
     except WebSocketDisconnect:
         logger.info("WebSocket fermee")
+    if agent:
+        agent.cancel()
     logger.info(
         "%d paquets, %d octets, %.1f s d'audio", paquets, len(audio), len(audio) / 8000
     )

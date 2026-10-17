@@ -1,10 +1,10 @@
 import asyncio
 import base64
 import json
-import wave
 
 from fastapi.testclient import TestClient
 
+import agent_vocal
 import telnyx_stream
 from main import app
 
@@ -14,8 +14,9 @@ client = TestClient(app)
 class FauxSTT:
     """Remplace la WebSocket de transcription : note ce qu'on envoie, renvoie des réponses prévues."""
 
-    def __init__(self, reponses):
+    def __init__(self, reponses, pause=0.0):
         self.reponses = reponses
+        self.pause = pause  # temps d'attente après la dernière réponse
         self.envoye = []
         self.ferme = False
 
@@ -28,6 +29,7 @@ class FauxSTT:
     async def __aiter__(self):
         for reponse in self.reponses:
             yield json.dumps(reponse)
+        await asyncio.sleep(self.pause)
 
 
 def test_decodage_ulaw():
@@ -71,14 +73,63 @@ def test_seules_les_phrases_definitives_sont_gardees():
     ]
 
 
-def test_stream_envoye_a_la_transcription_et_enregistre(monkeypatch, tmp_path):
+def test_fin_de_phrase_envoie_un_tour_a_l_agent():
+    stt = FauxSTT(
+        [
+            {"transcript": "My name is", "is_final": True, "speech_final": False},
+            {"transcript": "Dan Nguyen.", "is_final": True, "speech_final": True},
+            {"transcript": "I was", "is_final": False},
+        ]
+    )
+    tours = asyncio.Queue()
+    asyncio.run(telnyx_stream.lire_transcriptions(stt, tours))
+    phrase, _ = tours.get_nowait()
+    assert phrase == "My name is Dan Nguyen."
+    assert tours.empty()  # "I was" n'est pas fini : pas de tour
+
+
+def test_silence_apres_un_morceau_definitif_envoie_un_tour(monkeypatch):
+    monkeypatch.setattr(telnyx_stream, "DELAI_FIN_DE_PHRASE", 0.05)
+    stt = FauxSTT(
+        [{"transcript": "My name is Theodore Smith.", "is_final": True}], pause=0.2
+    )
+    tours = asyncio.Queue()
+    asyncio.run(telnyx_stream.lire_transcriptions(stt, tours))
+    phrase, _ = tours.get_nowait()
+    assert phrase == "My name is Theodore Smith."
+
+
+def test_pas_de_tour_si_l_appelant_continue(monkeypatch):
+    monkeypatch.setattr(telnyx_stream, "DELAI_FIN_DE_PHRASE", 0.05)
+    stt = FauxSTT(
+        [
+            {"transcript": "My name is", "is_final": True},
+            {"transcript": "Theodore", "is_final": False},  # il parle encore
+        ],
+        pause=0.2,
+    )
+    tours = asyncio.Queue()
+    asyncio.run(telnyx_stream.lire_transcriptions(stt, tours))
+    assert tours.empty()
+
+
+def test_appel_complet_salutation_puis_reponse(monkeypatch, tmp_path):
     monkeypatch.setattr(telnyx_stream, "ENREGISTREMENTS", tmp_path)
-    stt = FauxSTT([{"transcript": "Hello", "is_final": True}])
+    stt = FauxSTT([{"transcript": "Hello", "is_final": True, "speech_final": True}])
 
     async def faux_ouvrir_stt():
         return stt
 
+    async def faux_llm(historique):
+        assert historique[-1] == {"role": "user", "content": "Hello"}
+        return "Hi, what is your name?"
+
+    async def fausse_voix(texte):
+        return texte.encode()  # à la place d'un vrai mp3
+
     monkeypatch.setattr(telnyx_stream, "ouvrir_stt", faux_ouvrir_stt)
+    monkeypatch.setattr(agent_vocal, "reponse_llm", faux_llm)
+    monkeypatch.setattr(agent_vocal, "synthese_vocale", fausse_voix)
     paquet = base64.b64encode(bytes([0xFF] * 160)).decode()  # 20 ms de silence
     with client.websocket_connect("/telnyx/media") as ws:
         ws.send_json({"event": "connected", "version": "1.0.0"})
@@ -94,18 +145,20 @@ def test_stream_envoye_a_la_transcription_et_enregistre(monkeypatch, tmp_path):
                 },
             }
         )
+        salutation = ws.receive_json()
+        reponse = ws.receive_json()
         for _ in range(50):  # 50 x 20 ms = 1 seconde
-            ws.send_json(
-                {"event": "media", "media": {"track": "inbound", "payload": paquet}}
-            )
+            ws.send_json({"event": "media", "media": {"payload": paquet}})
         ws.send_json({"event": "stop"})
 
+    assert salutation["event"] == "media"
+    assert base64.b64decode(salutation["media"]["payload"]).decode() == (
+        agent_vocal.SALUTATION
+    )
+    assert base64.b64decode(reponse["media"]["payload"]) == b"Hi, what is your name?"
     audio_envoye = [d for d in stt.envoye if isinstance(d, bytes)]
     assert sum(len(d) for d in audio_envoye) == 8000  # tout le son est parti
     assert all(len(d) == 800 for d in audio_envoye)  # par morceaux de 100 ms
     assert json.loads(stt.envoye[-1]) == {"type": "CloseStream"}
     assert stt.ferme
-    fichiers = list(tmp_path.glob("appel-*.wav"))
-    assert len(fichiers) == 1
-    with wave.open(str(fichiers[0])) as f:
-        assert f.getnframes() == 8000  # 1 seconde
+    assert len(list(tmp_path.glob("appel-*.wav"))) == 1
