@@ -1,3 +1,4 @@
 fastapi[standard]
 tzdata
 python-dotenv
+websockets
