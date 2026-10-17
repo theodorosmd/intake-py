@@ -114,3 +114,56 @@ def test_le_llm_demande_un_outil_puis_repond_avec_son_resultat(monkeypatch):
     assert "save_intake" in faits[0] and "ab12" in faits[0]
     dernier = envoyes[1][-1]  # la 2e ronde a reçu le résultat de l'outil
     assert dernier["role"] == "tool" and "ab12" in dernier["content"]
+
+
+def test_la_reservation_reste_modifiable_apres_confirmation():
+    note = agent_vocal.note_outil("book_consultation", {"status": "booked"})
+    assert "Do not call it again" not in note
+    assert "call book_consultation again" in note
+    assert "Do not call it again" in agent_vocal.note_outil("save_intake", {})
+
+
+def test_annonce_de_reservation_sans_outil_retenue_et_corrigee(monkeypatch):
+    monkeypatch.setenv("LLM_MODEL", "openai/llm-agent")
+    monkeypatch.delenv("LLM_API_BASE", raising=False)
+    rondes = [
+        # 1re ronde : le LLM annonce le changement sans appeler l'outil
+        [morceau("One moment, I will change it now. "),
+         morceau("Your consultation is booked for Wednesday at 4 PM.")],
+        # après la correction : il appelle l'outil
+        [morceau(appel=appel_outil(0, "c1", "book_consultation", '{"preferred_date": "2026-10-21"}'))],
+        [morceau("Your consultation is booked for Wednesday, October 21 at 4 PM.")],
+    ]
+    envoyes = []
+
+    async def faux_acompletion(**kwargs):
+        envoyes.append(list(kwargs["messages"]))
+        ronde = rondes.pop(0)
+
+        async def flux():
+            for m in ronde:
+                yield m
+
+        return flux()
+
+    async def faux_outil(nom, arguments):
+        return {"status": "rescheduled", "slot_spoken": "Wednesday, October 21 at 4 PM"}
+
+    monkeypatch.setattr(agent_vocal.litellm, "acompletion", faux_acompletion)
+    monkeypatch.setattr(agent_vocal, "executer_outil", faux_outil)
+
+    async def scenario():
+        return [p async for p in agent_vocal.phrases_llm([{"role": "user", "content": "Move it"}], [])]
+
+    phrases = asyncio.run(scenario())
+    assert phrases == [
+        "One moment, I will change it now.",
+        "Your consultation is booked for Wednesday, October 21 at 4 PM.",
+    ]
+    assert envoyes[1][-1]["content"] == agent_vocal.CORRECTION_ANNONCE
+
+
+def test_les_consignes_listent_les_jours_de_semaine():
+    texte = agent_vocal.consignes()
+    for jour in ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday"):
+        assert jour in texte

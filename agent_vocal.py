@@ -5,7 +5,7 @@ import logging
 import os
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -18,6 +18,18 @@ logger = logging.getLogger("uvicorn.error")
 
 GATEWAY_URL = os.getenv("GATEWAY_URL", "http://127.0.0.1:8000")
 MAX_RONDES_OUTILS = 3  # le LLM peut enchaîner quelques outils, pas tourner en boucle
+
+
+def jours_ouvres(n: int = 5) -> str:
+    """Les prochains jours de semaine, en toutes lettres : le LLM inventait parfois
+    « seulement du lundi au mercredi »."""
+    jour = datetime.now(ZoneInfo("America/New_York")).date()
+    jours = []
+    while len(jours) < n:
+        jour += timedelta(days=1)
+        if jour.weekday() < 5:
+            jours.append(jour.strftime("%A %B %d").replace(" 0", " "))
+    return ", ".join(jours)
 
 
 def consignes() -> str:
@@ -36,12 +48,15 @@ def consignes() -> str:
         "them what to do about it. "
         "Never promise anything you cannot do yourself: no callbacks, no outcomes. "
         "Once you have the name, phone number, accident date, accident type and "
-        "whether they were injured, call save_intake once, then offer a consultation "
+        "whether they were injured, call save_intake once, right away, even if the "
+        "caller does not want a consultation; never ask permission to record. Then "
+        "offer a consultation "
         "and book it with book_consultation. Say that the information was recorded, "
         "or that a consultation is booked, only after the tool confirmed it. If a "
         "tool returns an error, fix the input or say you could not complete it. "
-        "Consultations are on weekdays at 10 AM, 2 PM or 4 PM New York time. Offer "
-        "these slots and call book_consultation only after the caller has agreed to "
+        "Consultations are available every weekday, Monday to Friday, at 10 AM, 2 PM "
+        f"or 4 PM New York time ({jours_ouvres()}, and the weeks after); never say a "
+        "weekday is unavailable and do not offer a shorter list of days. Offer these slots and call book_consultation only after the caller has agreed to "
         "a specific day and one of these times; never book to check availability. "
         "If the caller asks for another time, say which times exist and let them choose. "
         "If a name sounds unusual or unclear, or if the caller corrects their name, "
@@ -150,6 +165,25 @@ def decouper_phrases(tampon: str) -> tuple[list[str], str]:
     return phrases, reste
 
 
+# Ce que la suite de l'appel doit savoir d'un outil réussi. La réservation n'est pas
+# figée : « ne le rappelle pas » empêchait l'agent de déplacer un rendez-vous, et il
+# annonçait alors le changement sans l'avoir fait.
+SUITE_OUTIL = {
+    "save_intake": "Do not call it again.",
+    "book_consultation": (
+        "If the caller wants another day or time, call book_consultation again "
+        "with the new slot before saying it changed."
+    ),
+}
+
+
+def note_outil(nom: str, resultat: dict) -> str:
+    return (
+        f"[Tool {nom} already done and confirmed: {json.dumps(resultat)[:200]}. "
+        f"{SUITE_OUTIL.get(nom, 'Do not call it again.')}]"
+    )
+
+
 async def executer_outil(nom: str, arguments: str) -> dict:
     """Exécute un outil demandé par le LLM : un appel HTTP vers les routes de la passerelle."""
     chemin = CHEMINS_OUTILS.get(nom)
@@ -171,20 +205,43 @@ async def executer_outil(nom: str, arguments: str) -> dict:
     return reponse.json()
 
 
+# Une phrase qui annonce un rendez-vous pris ou déplacé. Si aucun outil n'a tourné dans
+# le tour, elle est fausse : le calendrier n'a pas bougé, mais l'appelant y croirait.
+ANNONCE_RESERVATION = re.compile(
+    r"\b(I(?:'ve| have)? (?:booked|scheduled|changed|moved|rescheduled|updated)"
+    r"|(?:is|has been|was|are) (?:now )?(?:booked|scheduled|changed|moved|rescheduled|updated))\b",
+    re.IGNORECASE,
+)
+CORRECTION_ANNONCE = (
+    "Correction: you said a consultation was booked or changed, but book_consultation "
+    "was not called in this turn, so the calendar did not change and the caller has not "
+    "heard that sentence. If the caller asked for a new or different slot, call "
+    "book_consultation now. If you were only repeating a booking confirmed earlier, "
+    "repeat it."
+)
+
+
 async def phrases_llm(historique: list[dict], faits: list[str] | None = None):
     """Demande la réponse au LLM en flux et donne les phrases dès qu'elles sont finies.
 
     Si le LLM demande un outil, on l'exécute et on repart avec son résultat. Chaque
     outil exécuté est noté dans `faits` (pour que la suite de l'appel le sache).
+
+    Garde-fou : une phrase qui annonce une réservation alors qu'aucun outil n'a tourné
+    dans ce tour n'est pas dite ; le LLM est relancé une fois avec une correction.
+    Les consignes seules ne suffisaient pas (environ un échec sur dix au rejeu).
     """
     parametres = parametres_llm()
     messages = [{"role": "system", "content": consignes()}, *historique]
+    outil_fait, corrige = False, False
     for _ in range(MAX_RONDES_OUTILS + 1):
         flux = await litellm.acompletion(
             **parametres, messages=messages, tools=OUTILS, stream=True, timeout=15
         )
         tampon, dit = "", ""
+        retenues: list[str] = []
         appels: dict[int, dict] = {}
+
         async for morceau in flux:
             if not morceau.choices:
                 continue
@@ -202,11 +259,26 @@ async def phrases_llm(historique: list[dict], faits: list[str] | None = None):
             tampon += texte
             phrases, tampon = decouper_phrases(tampon)
             for phrase in phrases:
-                yield phrase
-        if tampon.strip():
-            yield tampon.strip()
+                if outil_fait or corrige or not ANNONCE_RESERVATION.search(phrase):
+                    yield phrase
+                else:
+                    retenues.append(phrase)
+        fin = tampon.strip()
+        if fin:
+            if outil_fait or corrige or not ANNONCE_RESERVATION.search(fin):
+                yield fin
+            else:
+                retenues.append(fin)
         if not appels:
-            return
+            if not retenues:
+                return
+            logger.warning("Annonce sans outil retenue : %s", " ".join(retenues))
+            corrige = True
+            messages += [
+                {"role": "assistant", "content": dit},
+                {"role": "system", "content": CORRECTION_ANNONCE},
+            ]
+            continue
         messages.append(
             {
                 "role": "assistant",
@@ -237,11 +309,10 @@ async def phrases_llm(historique: list[dict], faits: list[str] | None = None):
                     "content": json.dumps(resultat),
                 }
             )
-            if faits is not None and "error" not in resultat:
-                faits.append(
-                    f"[Tool {a['name']} already done and confirmed: "
-                    f"{json.dumps(resultat)[:200]}. Do not call it again.]"
-                )
+            if "error" not in resultat:
+                outil_fait = True
+                if faits is not None:
+                    faits.append(note_outil(a["name"], resultat))
 
 
 async def reponse_llm(historique: list[dict]) -> str:

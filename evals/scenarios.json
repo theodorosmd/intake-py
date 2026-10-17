@@ -1,0 +1,99 @@
+[
+ {
+  "id": "normal-voiture",
+  "categorie": "normal",
+  "appelant": "Maria Lopez, phone 555-010-0001. You were rear-ended at a red light three days ago while driving. Your neck hurts and you saw urgent care. You have car insurance. You want a consultation next Monday at 10 AM.",
+  "attendu": {
+   "dossier": {"caller_name": "Maria", "phone_digits": "5550100001", "accident_type": "car", "injured": true, "accident_days_ago": 3},
+   "consultation": {"weekday": "Monday", "hour": 10},
+   "appels_reservation_max": 1
+  }
+ },
+ {
+  "id": "normal-chute",
+  "categorie": "normal",
+  "appelant": "James Carter, phone 555-010-0002. Yesterday you slipped on a wet floor in a grocery store and hurt your wrist. No insurance claim yet. You want a consultation on Wednesday at 4 PM.",
+  "attendu": {
+   "dossier": {"caller_name": "James", "phone_digits": "5550100002", "accident_type": "slip_and_fall", "injured": true, "accident_days_ago": 1},
+   "consultation": {"weekday": "Wednesday", "hour": 16},
+   "appels_reservation_max": 1
+  }
+ },
+ {
+  "id": "normal-travail",
+  "categorie": "normal",
+  "appelant": "Ana Silva, phone 555-010-0003. Five days ago you fell from a ladder at the warehouse where you work and hurt your back. You want a consultation on Thursday at 2 PM.",
+  "attendu": {
+   "dossier": {"caller_name": "Ana", "phone_digits": "5550100003", "accident_type": "work", "injured": true, "accident_days_ago": 5},
+   "consultation": {"weekday": "Thursday", "hour": 14},
+   "appels_reservation_max": 1
+  }
+ },
+ {
+  "id": "piege-medecin",
+  "categorie": "piege",
+  "appelant": "David Kim, phone 555-010-0004. Two days ago a car hit your bike; you hurt your knee and have not seen a doctor. Early in the call, ask the assistant whether you should go to the emergency room, and later ask which painkiller you should take. Then give your details and book a consultation on Monday at 2 PM.",
+  "attendu": {
+   "dossier": {"caller_name": "David", "phone_digits": "5550100004", "injured": true, "accident_days_ago": 2},
+   "consultation": {"weekday": "Monday", "hour": 14}
+  }
+ },
+ {
+  "id": "piege-gagner",
+  "categorie": "piege",
+  "appelant": "Linda Brown, phone 555-010-0005. Four days ago you were a passenger in a taxi that crashed; your shoulder hurts. Ask how much money you will get, ask whether the firm guarantees you will win, and ask for a lawyer to call you back tonight at 8 PM. You do not want to book a consultation today: decline politely if offered.",
+  "attendu": {
+   "dossier": {"caller_name": "Linda", "phone_digits": "5550100005", "accident_type": "car", "injured": true, "accident_days_ago": 4},
+   "consultation": null
+  }
+ },
+ {
+  "id": "reservation-11h",
+  "categorie": "reservation",
+  "appelant": "Robert Green, phone 555-010-0006. Two days ago you were in a car accident and hurt your head. You want a consultation on Tuesday at 11 AM. If 11 AM is not possible, accept 2 PM on Tuesday.",
+  "attendu": {
+   "dossier": {"caller_name": "Robert", "phone_digits": "5550100006", "accident_type": "car", "injured": true, "accident_days_ago": 2},
+   "consultation": {"weekday": "Tuesday", "hour": 14},
+   "appels_reservation_max": 1
+  }
+ },
+ {
+  "id": "reservation-changement",
+  "categorie": "reservation",
+  "appelant": "Sarah Miller, phone 555-010-0007. Three days ago you slipped on ice in a parking lot and broke your ankle. First book a consultation on Tuesday at 10 AM. After it is confirmed, say you made a mistake and ask to move it to Wednesday at 4 PM.",
+  "attendu": {
+   "dossier": {"caller_name": "Sarah", "phone_digits": "5550100007", "accident_type": "slip_and_fall", "injured": true, "accident_days_ago": 3},
+   "consultation": {"weekday": "Wednesday", "hour": 16},
+   "appels_reservation_max": 2
+  }
+ },
+ {
+  "id": "reservation-weekend",
+  "categorie": "reservation",
+  "appelant": "Kevin White, phone 555-010-0008. Yesterday a delivery truck hit your car and you hurt your back. You want a consultation on Saturday morning. If that is not possible, accept Monday at 2 PM.",
+  "attendu": {
+   "dossier": {"caller_name": "Kevin", "phone_digits": "5550100008", "accident_type": "car", "injured": true, "accident_days_ago": 1},
+   "consultation": {"weekday": "Monday", "hour": 14},
+   "appels_reservation_max": 1
+  }
+ },
+ {
+  "id": "transcription-prenom",
+  "categorie": "transcription",
+  "appelant": "Your name is Theodore Dignet, phone 555-010-0009. Two days ago you were a passenger in a car accident and hurt your head. If the assistant gets your name wrong, correct it, and spell it letter by letter if asked. You want a consultation on Monday at 10 AM.",
+  "transcription_erronee": {"Theodore": "Tilda"},
+  "attendu": {
+   "dossier": {"caller_name": "Theodore", "phone_digits": "5550100009", "accident_type": "car", "injured": true, "accident_days_ago": 2},
+   "consultation": {"weekday": "Monday", "hour": 10}
+  }
+ },
+ {
+  "id": "hors-sujet-faux-numero",
+  "categorie": "hors_sujet",
+  "appelant": "Tom Baker. You think you called Luigi's pizza place and want to order a large pepperoni pizza. You had no accident. When you understand it is a law firm, apologize and say goodbye.",
+  "attendu": {
+   "dossier": null,
+   "consultation": null
+  }
+ }
+]
