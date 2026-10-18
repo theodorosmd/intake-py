@@ -1,5 +1,7 @@
-fastapi[standard]
+# Versions épinglées : celles testées en local et au rejeu (50 scénarios).
+# Une image reconstruite plus tard doit donner le même comportement.
+fastapi[standard]==0.143.3
 tzdata
 python-dotenv
-websockets
-litellm
+websockets==17.2
+litellm==1.105.1
