@@ -12,7 +12,10 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+import confidentialite
 from telnyx_stream import router as telnyx_router
+
+confidentialite.installer()  # noms et numéros masqués dans tous les journaux
 
 
 async def prechauffer_salutation() -> None:
