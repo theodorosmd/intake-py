@@ -7,3 +7,5 @@ websockets==17.2
 litellm==1.105.1
 pynacl==1.6.2
 mcp==2.3.0
+psycopg[binary]==3.3.6
+psycopg-pool==3.3.3

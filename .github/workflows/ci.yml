@@ -12,12 +12,25 @@ permissions:
 jobs:
   verifier:
     runs-on: ubuntu-latest
+    # Une vraie base pour la CI : toute la suite tourne sur Postgres, comme en production.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: intake_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s --health-timeout 5s --health-retries 20
     env:
-      # Valeurs factices : les tests ne contactent aucun service externe.
+      # Valeurs factices : les tests ne contactent aucun service externe (sauf la base ci-dessus).
       LLM_MODEL: openai/test
       OPENAI_API_KEY: test
       TELNYX_API_KEY: test
       PUBLIC_HOST: example.test
+      DATABASE_URL: postgresql://postgres:test@localhost:5432/intake_test
+      TEST_DATABASE_URL: postgresql://postgres:test@localhost:5432/intake_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

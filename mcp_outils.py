@@ -4,8 +4,8 @@ Le cabinet branche Claude, Cursor ou tout client MCP sur https://<hôte>/mcp ave
 (en-tête Authorization: Bearer <MCP_TOKEN>) et demande par exemple « quels dossiers urgents
 sont arrivés aujourd'hui ? » ou « réserve un rendez-vous jeudi pour M. X ».
 
-Les données vivent dans la mémoire de la gateway : ce module ne les possède pas, main.py les
-lui passe à la création. Sans jeton configuré, le point d'accès refuse tout (503).
+Les données viennent du même stockage que la gateway (Postgres en production, voir stockage.py) :
+main.py le lui passe à la création. Sans jeton configuré, le point d'accès refuse tout (503).
 """
 
 import hmac
@@ -21,6 +21,8 @@ from mcp.types import ToolAnnotations
 from pydantic import BaseModel
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
+
+from stockage import Stockage
 
 LECTURE = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
 
@@ -42,9 +44,7 @@ class RendezVous(BaseModel):
 
 def creer_serveur(
     *,
-    dossiers: dict[str, dict],
-    reservations: dict,
-    resumes: dict[str, dict],
+    stockage: Stockage,
     est_urgent: Callable[[dict], bool],
     creneau_libre: Callable[[date, int | None], dict[str, Any]],
     reserver: Callable[[str, str, date, int | None], dict[str, Any]],
@@ -65,28 +65,29 @@ def creer_serveur(
         """
         cas = [
             {"case_id": case_id, **dossier, "urgent": est_urgent(dossier)}
-            for case_id, dossier in reversed(dossiers.items())
+            for case_id, dossier in stockage.dossiers()
         ]
         return [c for c in cas if c["urgent"]] if urgent_only else cas
 
     @serveur.tool(annotations=LECTURE)
     def get_intake_case(case_id: str) -> dict[str, Any]:
         """Return one intake case by its id."""
-        if case_id not in dossiers:
+        dossier = stockage.dossier(case_id)
+        if dossier is None:
             raise ValueError(f"No intake case with id {case_id}")
-        return {"case_id": case_id, **dossiers[case_id], "urgent": est_urgent(dossiers[case_id])}
+        return {"case_id": case_id, **dossier, "urgent": est_urgent(dossier)}
 
     @serveur.tool(annotations=LECTURE)
     def list_call_summaries() -> list[dict]:
         """List the post-call summaries (injured, accident type), most recent first."""
-        return list(reversed(resumes.values()))
+        return stockage.resumes()
 
     @serveur.tool(annotations=LECTURE)
     def list_consultations() -> list[RendezVous]:
         """List booked consultations in chronological order."""
         return [
             RendezVous(slot=creneau.isoformat(), caller_name=nom)
-            for creneau, nom in sorted(reservations.items())
+            for creneau, nom in stockage.rendez_vous()
         ]
 
     @serveur.tool(annotations=LECTURE)

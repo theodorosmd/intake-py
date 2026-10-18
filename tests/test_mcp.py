@@ -13,10 +13,7 @@ ENTETES = {"Accept": "application/json, text/event-stream", "Content-Type": "app
 
 @pytest.fixture(autouse=True)
 def donnees_vides(monkeypatch):
-    main.DOSSIERS.clear()
-    main.RESERVATIONS.clear()
-    main.RESERVATION_PAR_TEL.clear()
-    main.RESUMES.clear()
+    main.STOCKAGE.vider()
     monkeypatch.setenv("MCP_TOKEN", JETON)
 
 
@@ -52,20 +49,20 @@ def test_les_six_outils_sont_exposes():
 
 
 def test_les_dossiers_du_telephone_sont_lisibles_et_filtrables():
-    main.DOSSIERS["a1"] = {
+    main.STOCKAGE.enregistrer_dossier("a1", {
         "caller_name": "John Miller",
         "phone": "+15551234567",
         "accident_date": date.today().isoformat(),
         "accident_type": "car",
         "injured": True,
-    }
-    main.DOSSIERS["b2"] = {
+    })
+    main.STOCKAGE.enregistrer_dossier("b2", {
         "caller_name": "Ann Lee",
         "phone": "+15559876543",
         "accident_date": (date.today() - timedelta(days=60)).isoformat(),
         "accident_type": "work",
         "injured": False,
-    }
+    })
     tous = appeler("list_intake_cases").structured_content["result"]
     assert [c["case_id"] for c in tous] == ["b2", "a1"]  # le plus récent d'abord
     urgents = appeler("list_intake_cases", {"urgent_only": True}).structured_content["result"]
@@ -92,7 +89,7 @@ def test_reserver_puis_lister_les_rendez_vous():
 
 
 def test_les_resumes_d_appels_sont_lisibles():
-    main.RESUMES["v3:abc"] = {"call_id": "v3:abc", "injured": True, "accident_type": "car"}
+    main.STOCKAGE.enregistrer_resume("v3:abc", {"call_id": "v3:abc", "injured": True, "accident_type": "car"})
     resumes = appeler("list_call_summaries").structured_content["result"]
     assert resumes[0]["call_id"] == "v3:abc"
 

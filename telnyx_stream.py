@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
 from conversation import Conversation
+from stockage import STOCKAGE
 from telnyx_signature import evenement_verifie
 
 load_dotenv()
@@ -27,7 +28,6 @@ router = APIRouter()
 
 TELNYX_API = "https://api.telnyx.com/v2"
 WORKER_URL = os.environ.get("WORKER_URL", "http://127.0.0.1:8001")
-RESUMES: dict[str, dict] = {}  # résumés d'appels par call_control_id, lus par le serveur MCP
 ENREGISTREMENTS = Path("enregistrements")
 
 # Transcription en streaming via l'API STT de Telnyx (même clé API).
@@ -237,7 +237,11 @@ async def resumer_appel(id_appel: str, texte: str) -> None:
             )
             reponse.raise_for_status()
         resume = reponse.json()
-        RESUMES[id_appel] = {**resume, "received_at": datetime.now(UTC).isoformat()}
+        await asyncio.to_thread(
+            STOCKAGE.enregistrer_resume,
+            id_appel,
+            {**resume, "received_at": datetime.now(UTC).isoformat()},
+        )
         logger.info("Resume de l'appel : %s", resume)
     except httpx.HTTPError as erreur:
         logger.warning("summary-worker injoignable : %r", erreur)

@@ -11,8 +11,7 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def agenda_vide():
-    main.RESERVATIONS.clear()
-    main.RESERVATION_PAR_TEL.clear()
+    main.STOCKAGE.vider()
 
 
 def prochain(jour_semaine):
@@ -48,7 +47,7 @@ def test_intake_renvoie_un_numero_de_dossier():
     )
     assert r.status_code == 200
     case_id = r.json()["case_id"]
-    assert main.DOSSIERS[case_id]["accident_location"] == "I-95, Bronx"
+    assert main.STOCKAGE.dossier(case_id)["accident_location"] == "I-95, Bronx"
 
 
 def test_reserve_le_premier_creneau_du_jour():
@@ -74,14 +73,14 @@ def test_meme_appelant_deplace_sa_reservation():
     data = reserver(lundi + timedelta(days=1)).json()
     assert data["status"] == "rescheduled"
     assert data["previous_slot_spoken"] is not None
-    assert len(main.RESERVATIONS) == 1
+    assert len(main.STOCKAGE.rendez_vous()) == 1
 
 
 def test_meme_numero_ecrit_differemment():
     lundi = prochain(0)
     reserver(lundi, phone="+1 555 123 4567")
     reserver(lundi, phone="+15551234567")
-    assert len(main.RESERVATIONS) == 1
+    assert len(main.STOCKAGE.rendez_vous()) == 1
 
 
 def test_heure_minimum():

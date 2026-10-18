@@ -15,8 +15,8 @@ from starlette.routing import Route
 
 import confidentialite
 import mcp_outils
+from stockage import STOCKAGE, CreneauPris
 from telnyx_signature import evenement_verifie
-from telnyx_stream import RESUMES
 from telnyx_stream import router as telnyx_router
 
 confidentialite.installer()  # noms et numéros masqués dans tous les journaux
@@ -34,10 +34,12 @@ async def prechauffer_salutation() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    await asyncio.to_thread(STOCKAGE.preparer)  # connexion à la base et schéma (rien en mémoire)
     tache = asyncio.create_task(prechauffer_salutation())
     async with POINT_MCP.demarrer():  # le serveur MCP de /mcp vit avec l'application
         yield
     tache.cancel()
+    await asyncio.to_thread(STOCKAGE.fermer)
 
 
 app = FastAPI(title="call-gateway", lifespan=lifespan)
@@ -48,10 +50,7 @@ URGENCE_JOURS = 14
 WORKER_URL = os.environ.get("WORKER_URL", "http://127.0.0.1:8001")
 NEW_YORK = ZoneInfo("America/New_York")
 HEURES_CRENEAUX = [10, 14, 16]
-
-DOSSIERS: dict[str, dict] = {}
-RESERVATIONS: dict[datetime, str] = {}
-RESERVATION_PAR_TEL: dict[str, datetime] = {}
+ESSAIS_RESERVATION = 3  # si deux appelants visent le même créneau au même instant
 
 
 class IntakeCase(BaseModel):
@@ -92,6 +91,7 @@ def a_voix_haute(creneau: datetime) -> str:
 
 def premier_creneau_libre(a_partir_du: date, heure_min: int | None = None) -> datetime:
     maintenant = datetime.now(NEW_YORK)
+    pris = STOCKAGE.creneaux_pris()
     jour = max(a_partir_du, maintenant.date())
     for _ in range(30):
         if jour.weekday() < 5:
@@ -101,7 +101,7 @@ def premier_creneau_libre(a_partir_du: date, heure_min: int | None = None) -> da
                 creneau = datetime(
                     jour.year, jour.month, jour.day, heure, tzinfo=NEW_YORK
                 )
-                if creneau > maintenant and creneau not in RESERVATIONS:
+                if creneau > maintenant and creneau not in pris:
                     return creneau
         jour += timedelta(days=1)
         heure_min = None
@@ -117,7 +117,7 @@ def health():
 def receive_intake(case: IntakeCase):
     urgent = is_urgent(case)
     case_id = uuid.uuid4().hex[:8]
-    DOSSIERS[case_id] = case.model_dump(mode="json")
+    STOCKAGE.enregistrer_dossier(case_id, case.model_dump(mode="json"))
     logger.info("Dossier %s enregistre | urgent=%s", case_id, urgent)
     return {
         "status": "received",
@@ -130,12 +130,15 @@ def receive_intake(case: IntakeCase):
 @app.post("/consultations")
 def book_consultation(demande: ConsultationRequest):
     cle = chiffres(demande.phone)
-    nouveau = premier_creneau_libre(demande.preferred_date, demande.preferred_hour)
-    ancien = RESERVATION_PAR_TEL.pop(cle, None)
-    if ancien is not None:
-        RESERVATIONS.pop(ancien, None)
-    RESERVATIONS[nouveau] = demande.caller_name
-    RESERVATION_PAR_TEL[cle] = nouveau
+    for _ in range(ESSAIS_RESERVATION):
+        nouveau = premier_creneau_libre(demande.preferred_date, demande.preferred_hour)
+        try:
+            ancien = STOCKAGE.reserver(cle, demande.caller_name, nouveau)
+            break
+        except CreneauPris:
+            logger.warning("Creneau %s pris entre-temps, nouvel essai", nouveau.isoformat())
+    else:
+        raise HTTPException(status_code=409, detail="Creneau pris, reessayez")
     logger.info(
         "Consultation %s le %s",
         "deplacee" if ancien else "reservee",
@@ -214,9 +217,7 @@ def _reserver(caller_name: str, phone: str, preferred_date: date, preferred_hour
 
 
 MCP = mcp_outils.creer_serveur(
-    dossiers=DOSSIERS,
-    reservations=RESERVATIONS,
-    resumes=RESUMES,
+    stockage=STOCKAGE,
     est_urgent=lambda dossier: is_urgent(IntakeCase(**dossier)),
     creneau_libre=_creneau_libre,
     reserver=_reserver,

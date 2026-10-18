@@ -145,9 +145,7 @@ CLIENT = TestClient(main.app)
 
 
 def remettre_a_zero() -> None:
-    main.RESERVATIONS.clear()
-    main.RESERVATION_PAR_TEL.clear()
-    main.DOSSIERS.clear()
+    main.STOCKAGE.vider()
 
 
 def entendre(texte: str, erreurs: dict[str, str], deja: set[str]) -> str:
