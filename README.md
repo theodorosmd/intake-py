@@ -39,6 +39,7 @@ caller ─ phone ─ Telnyx ─ media WebSocket ─┬─ STT (Deepgram via Teln
 | Replay suite, last full run | 48/50 scenarios | `python -m evals.rejeu` (Oct 18, 2026) |
 | Replay suite, scenarios fixed after that run | 18/18 (6 scenarios × 3 runs) | `--seulement … --repetitions 3` |
 | Time to first sound (median) | 3.6 s → 2.64 s → 2.54 s | Per-turn log on real test calls: before streaming, after streaming and model change, latest 14-turn call |
+| Time to first sound on the cluster | median 3.0 s on a first call, 2.2 s total median on a later one | Same per-turn log, k3s in Helsinki (the Telnyx edge and the model are far from it) |
 | Model time to first token | 1.19 s (`gpt-4.1-mini`) vs 1.93 s (previous model) | `litellm/mesure_ttft.py` in the gateway repo, 8 runs each |
 
 The appendix of the deployment playbook lists every defect found and how it was fixed.
@@ -66,6 +67,25 @@ cloudflared tunnel --url http://localhost:8000   # public URL for Telnyx
 | `GATEWAY_URL` | Where tools are sent, default `http://127.0.0.1:8000` |
 | `LOGS_EN_CLAIR=1` | Disable log masking for local debugging only |
 
+## Deployment (Kubernetes)
+
+Runs on a single-node k3s cluster (Hetzner, Helsinki) behind Traefik, with a fixed domain and a
+Let's Encrypt certificate issued by cert-manager. The manifests and the Helm chart live in the `pi-intake` repo.
+
+```
+Telnyx ─ https://intake.theappstudio.co/telnyx/voice ─ Traefik ─ intake-gateway (this repo)
+                                                                   ├─ litellm ─ litellm-db (Postgres)
+                                                                   └─ summary-worker
+```
+
+- **Images:** built for `linux/amd64` by CI, pushed to a private GHCR registry, tagged with the commit (`sha-xxxxxxx`), never `latest`.
+- **Secrets:** created from local `.env` files by a script; values are never in git or in logs. The LiteLLM virtual key is generated inside the cluster.
+- **Resources and probes:** memory requests and limits set from `kubectl top` measurements (the OOMKilled behaviour was reproduced on purpose); startup, readiness and liveness probes on every pod.
+- **Rollout:** the gateway runs one replica with a `Recreate` strategy, because the state of a call lives in memory; `helm rollback` restores the previous revision.
+- **Exposure:** the ingress publishes only `/telnyx`; a cloud firewall allows 22, 80 and 443; the Kubernetes API is only reachable through an SSH tunnel.
+- **CI (`.github/workflows/ci.yml`):** on every push, `ruff` and the unit tests, then the image build and push.
+- **CD (`deploy.yml` in `pi-intake`):** a manual workflow takes an image tag and runs `helm upgrade`. GitHub holds a dedicated SSH key that can only open a tunnel to the API, and a service account limited to the `intake` namespace.
+
 ## Tests and replay
 
 ```bash
@@ -83,8 +103,12 @@ the judge on a stronger model. Reports with full transcripts go to `evals/rappor
 
 ## Known gaps
 
-- Not yet deployed on Kubernetes; runs locally behind a tunnel.
+- One node, one gateway replica: no high availability, and no autoscaling until call state is stored outside the process. The node is shared with another workload and its memory is tight.
+- Hosted in Helsinki: fine for tests, but a US deployment should run close to Telnyx and the model for latency.
+- The Telnyx webhook signature is not verified yet.
+- The post-call summary worker is deployed but not yet called at the end of a call.
+- Audio recordings are written unmasked inside the pod and disappear on restart; retention and masking are not implemented.
+- The LiteLLM image is not pinned by digest yet.
 - No transfer to a human yet in this pipeline (the vendor-hosted assistant version had one).
 - Existing clients, out-of-scope matters and cancellations get an honest answer but no hand-off: decisions for the firm.
-- Audio recordings are stored unmasked locally; retention is not implemented yet.
 - Code comments and log messages are in French.
