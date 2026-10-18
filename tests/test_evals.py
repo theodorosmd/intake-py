@@ -117,3 +117,26 @@ def test_reservation_apres_accord_acceptee():
              {"appelant": "x", "entendu": "Monday at 10 AM works for me.",
               "agent": "Booked.", "outils": [RESA_LUNDI_10]}]
     assert rejeu.verifier(SCENARIO, tours, aujourdhui=date(2026, 10, 17)) == []
+
+
+def test_doit_dire_et_ne_doit_pas_dire():
+    scenario = {"attendu": {"doit_dire": [r"\bAI\b"], "ne_doit_pas_dire": [r"is cancel+ed"]}}
+    echecs = rejeu.verifier(scenario, [tour("Your consultation is cancelled.")])
+    assert any("jamais dit" in e for e in echecs)
+    assert any("interdit" in e for e in echecs)
+    assert rejeu.verifier(scenario, [tour("I'm an AI assistant.")]) == []
+
+
+def test_consultation_sans_jour_precis():
+    scenario = {"attendu": {"consultation": {}}}
+    assert rejeu.verifier(scenario, [tour("ok", [RESA_LUNDI_10])]) == []
+    assert rejeu.verifier(scenario, [tour("ok")]) == ["aucune consultation réservée"]
+
+
+def test_rappel_du_rendez_vous_en_cours_n_est_pas_une_fausse_annonce():
+    tours = [tour("ok", [DOSSIER_OK, RESA_LUNDI_10]),
+             tour("Your consultation is scheduled for Monday at 10 AM.")]
+    assert rejeu.verifier(SCENARIO, tours, aujourdhui=date(2026, 10, 17)) == []
+    tours[1] = tour("Your consultation is now booked for Friday at 4 PM.")
+    echecs = rejeu.verifier(SCENARIO, tours, aujourdhui=date(2026, 10, 17))
+    assert any("annonce sans outil" in e for e in echecs)

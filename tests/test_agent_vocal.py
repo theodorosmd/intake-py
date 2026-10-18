@@ -167,3 +167,15 @@ def test_les_consignes_listent_les_jours_de_semaine():
     texte = agent_vocal.consignes()
     for jour in ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday"):
         assert jour in texte
+
+
+def test_les_jours_relatifs_sont_calcules_par_le_code():
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    donnees = agent_vocal.normaliser_arguments("save_intake", {"accident_days_ago": 45})
+    attendu = datetime.now(ZoneInfo("America/New_York")).date() - timedelta(days=45)
+    assert donnees == {"accident_date": attendu.isoformat()}
+    assert agent_vocal.normaliser_arguments("save_intake", {"accident_date": "2026-10-01"}) == {
+        "accident_date": "2026-10-01"
+    }

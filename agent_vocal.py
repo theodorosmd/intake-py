@@ -43,6 +43,12 @@ def consignes() -> str:
         "or symbols. Ask one question at a time to learn the caller's name, phone "
         "number, accident date, accident type (car, slip and fall, work or other), "
         "whether they were injured, and what happened. "
+        "Safety first: if the caller describes an emergency happening now (heavy "
+        "bleeding, dizziness, chest pain, trouble breathing, losing consciousness), "
+        "tell them right away to hang up and call 911, before any other question, "
+        "and do not continue the intake unless they say they are safe. "
+        "Never turn a number of days or weeks into a calendar date yourself: pass "
+        "accident_days_ago, and when you confirm, repeat it as the caller said it. "
         "Never give legal or medical advice. If the caller mentions an injury, show "
         "sympathy and ask whether they have received medical care, but never tell "
         "them what to do about it. "
@@ -60,7 +66,9 @@ def consignes() -> str:
         "a specific day and one of these times; never book to check availability. "
         "If the caller asks for another time, say which times exist and let them choose. "
         "If a name sounds unusual or unclear, or if the caller corrects their name, "
-        "ask them to spell their first name letter by letter before you save it. Before calling a tool, say one very short sentence such as "
+        "ask them to spell the part that was unclear, letter by letter. Before "
+        "calling save_intake, read back the caller's full name and phone number in "
+        "one short sentence and let them correct it. Before calling a tool, say one very short sentence such as "
         "\"One moment.\" "
         "If the caller wants to change the consultation date or time, you must call "
         "book_consultation again with the new slot and only say it was changed after "
@@ -83,7 +91,16 @@ OUTILS = [
                         "type": "string",
                         "description": "With country code, e.g. +15551234567",
                     },
-                    "accident_date": {"type": "string", "description": "YYYY-MM-DD"},
+                    "accident_date": {
+                        "type": "string",
+                        "description": "YYYY-MM-DD, only if the caller gave a calendar date",
+                    },
+                    "accident_days_ago": {
+                        "type": "integer",
+                        "description": "If the caller gave a relative date (yesterday = 1, "
+                        "45 days ago = 45, two weeks ago = 14), pass this instead of "
+                        "accident_date: the system computes the date.",
+                    },
                     "accident_type": {
                         "type": "string",
                         "enum": ["car", "slip_and_fall", "work", "other"],
@@ -96,7 +113,6 @@ OUTILS = [
                 "required": [
                     "caller_name",
                     "phone",
-                    "accident_date",
                     "accident_type",
                     "injured",
                 ],
@@ -184,13 +200,26 @@ def note_outil(nom: str, resultat: dict) -> str:
     )
 
 
+def normaliser_arguments(nom: str, donnees: dict) -> dict:
+    """Le LLM calcule mal les dates (« 45 days ago » est devenu le 4 août au lieu du
+    3 septembre) : il donne le nombre de jours, le code fait le calcul."""
+    if nom == "save_intake" and "accident_days_ago" in donnees:
+        try:
+            jours = int(donnees.pop("accident_days_ago"))
+        except (TypeError, ValueError):
+            return donnees
+        aujourdhui = datetime.now(ZoneInfo("America/New_York")).date()
+        donnees.setdefault("accident_date", (aujourdhui - timedelta(days=jours)).isoformat())
+    return donnees
+
+
 async def executer_outil(nom: str, arguments: str) -> dict:
     """Exécute un outil demandé par le LLM : un appel HTTP vers les routes de la passerelle."""
     chemin = CHEMINS_OUTILS.get(nom)
     if chemin is None:
         return {"error": f"unknown tool {nom}"}
     try:
-        donnees = json.loads(arguments or "{}")
+        donnees = normaliser_arguments(nom, json.loads(arguments or "{}"))
     except json.JSONDecodeError:
         return {"error": "arguments are not valid JSON"}
     try:
