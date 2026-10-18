@@ -24,6 +24,7 @@ logger = logging.getLogger("uvicorn.error")
 router = APIRouter()
 
 TELNYX_API = "https://api.telnyx.com/v2"
+WORKER_URL = os.environ.get("WORKER_URL", "http://127.0.0.1:8001")
 ENREGISTREMENTS = Path("enregistrements")
 
 # Transcription en streaming via l'API STT de Telnyx (même clé API).
@@ -171,12 +172,14 @@ async def media_stream(ws: WebSocket):
     tours = asyncio.Queue()
     conv = Conversation(ws)
     agent = None
+    id_appel = "inconnu"
     try:
         while True:
             message = await ws.receive_json()
             evenement = message.get("event")
             if evenement == "start":
                 logger.info("Stream demarre : %s", message["start"].get("media_format"))
+                id_appel = message["start"].get("call_control_id") or id_appel
                 agent = asyncio.create_task(distribuer_tours(conv, tours))
                 try:
                     stt = await ouvrir_stt()
@@ -214,12 +217,30 @@ async def media_stream(ws: WebSocket):
     )
     if audio:
         logger.info("Audio enregistre : %s", enregistrer(bytes(audio)))
+    finales = []
     if stt:
-        await terminer_stt(stt, lecteur, tampon)
+        finales = await terminer_stt(stt, lecteur, tampon)
+    await resumer_appel(id_appel, " ".join(finales))
 
 
-async def terminer_stt(stt, lecteur, tampon: bytearray) -> None:
-    """Envoie le reste du son, demande les derniers résultats, puis ferme."""
+async def resumer_appel(id_appel: str, texte: str) -> None:
+    """Envoie la transcription au summary-worker. Un échec ne doit jamais gêner la fin de l'appel."""
+    if not texte.strip():
+        return
+    try:
+        async with httpx.AsyncClient(timeout=30) as http:
+            reponse = await http.post(
+                f"{WORKER_URL}/summarize", json={"call_id": id_appel, "text": texte}
+            )
+            reponse.raise_for_status()
+        logger.info("Resume de l'appel : %s", reponse.json())
+    except httpx.HTTPError as erreur:
+        logger.warning("summary-worker injoignable : %r", erreur)
+
+
+async def terminer_stt(stt, lecteur, tampon: bytearray) -> list[str]:
+    """Envoie le reste du son, demande les derniers résultats, puis ferme. Renvoie les phrases finales."""
+    finales: list[str] = []
     try:
         if tampon:
             await stt.send(bytes(tampon))
@@ -231,3 +252,4 @@ async def terminer_stt(stt, lecteur, tampon: bytearray) -> None:
         logger.warning("Fin de transcription incomplete")
     finally:
         await stt.close()
+    return finales

@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+from typing import ClassVar
 
 from fastapi.testclient import TestClient
 
@@ -166,3 +167,53 @@ def test_appel_complet_salutation_puis_reponse(monkeypatch, tmp_path):
     assert json.loads(stt.envoye[-1]) == {"type": "CloseStream"}
     assert stt.ferme
     assert len(list(tmp_path.glob("appel-*.wav"))) == 1
+
+
+class FauxClientHttp:
+    """Remplace httpx.AsyncClient : note la requête, renvoie une réponse prévue ou lève une erreur."""
+
+    envoye: ClassVar[list] = []
+    erreur: ClassVar[Exception | None] = None
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def post(self, url, json):
+        if FauxClientHttp.erreur:
+            raise FauxClientHttp.erreur
+        FauxClientHttp.envoye.append((url, json))
+        import httpx
+
+        return httpx.Response(
+            200, json={"method": "llm"}, request=httpx.Request("POST", url)
+        )
+
+
+def test_la_transcription_est_envoyee_au_resume(monkeypatch):
+    FauxClientHttp.envoye, FauxClientHttp.erreur = [], None
+    monkeypatch.setattr(telnyx_stream.httpx, "AsyncClient", FauxClientHttp)
+    asyncio.run(telnyx_stream.resumer_appel("v3:abc", "I was hurt in a car crash"))
+    url, corps = FauxClientHttp.envoye[0]
+    assert url.endswith("/summarize")
+    assert corps == {"call_id": "v3:abc", "text": "I was hurt in a car crash"}
+
+
+def test_pas_de_resume_sans_transcription(monkeypatch):
+    FauxClientHttp.envoye, FauxClientHttp.erreur = [], None
+    monkeypatch.setattr(telnyx_stream.httpx, "AsyncClient", FauxClientHttp)
+    asyncio.run(telnyx_stream.resumer_appel("v3:abc", "   "))
+    assert FauxClientHttp.envoye == []
+
+
+def test_un_worker_en_panne_ne_casse_pas_la_fin_de_l_appel(monkeypatch):
+    import httpx
+
+    FauxClientHttp.envoye, FauxClientHttp.erreur = [], httpx.ConnectError("down")
+    monkeypatch.setattr(telnyx_stream.httpx, "AsyncClient", FauxClientHttp)
+    asyncio.run(telnyx_stream.resumer_appel("v3:abc", "hello"))  # ne doit pas lever
