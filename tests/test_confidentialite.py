@@ -76,3 +76,15 @@ def test_les_lignes_d_acces_uvicorn_gardent_leurs_arguments(monkeypatch):
         assert record.getMessage() == '10.42.0.1:54336 - "GET /health HTTP/1.1" 200'
     finally:
         logging.setLogRecordFactory(origine)
+
+
+def test_un_nom_donne_seul_et_epele_est_masque():
+    c.NOMS_CONNUS.clear()
+    assert c.masquer("Theo, t h e o.") == "[NOM], [EPELE]."
+    assert c.masquer("Thank you, Theo.") == "Thank you, [NOM]."
+
+
+def test_le_nom_est_appris_quand_l_agent_remercie():
+    c.NOMS_CONNUS.clear()
+    c.masquer("Thank you, Marlowe.")
+    assert c.masquer("Marlowe called twice") == "[NOM] called twice"

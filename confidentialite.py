@@ -23,7 +23,10 @@ CHIFFRES_DITS = re.compile(
     re.IGNORECASE,
 )
 EMAIL = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")
-EPELE = re.compile(r"\b(?:[A-Za-z][-.]\s?){2,}[A-Za-z]\b|\b(?:[A-Z] ){3,}[A-Z]\b")
+EPELE = re.compile(
+    r"\b(?:[A-Za-z][-.]\s?){2,}[A-Za-z]\b|\b(?:[A-Za-z] ){2,}[A-Za-z]\b"
+)
+REMERCIEMENT = re.compile(r"\b(?i:thank you),\s+([A-Z][\w'’-]+)")
 PRESENTATION = re.compile(
     r"\b(?i:my name is|my name's|name is|i am|i'm|this is|call me)\s+"
     r"([A-Z][\w'’-]+(?:\s+[A-Z][\w'’-]+)?)"
@@ -67,6 +70,10 @@ def masquer(texte: str) -> str:
         retenir_nom(trouve.group(1))
     for trouve in CHAMP_NOM.finditer(texte):
         retenir_nom(trouve.group(1))
+    for trouve in REMERCIEMENT.finditer(texte):
+        retenir_nom(trouve.group(1))  # « Thank you, Theo. » : l'agent répète le nom
+    for trouve in EPELE.finditer(texte):
+        retenir_nom(re.sub(r"[^A-Za-z]", "", trouve.group(0)))  # nom épelé lettre par lettre
     texte = EMAIL.sub("[EMAIL]", texte)
     texte = NUMERO.sub(_numero, texte)
     texte = CHIFFRES_DITS.sub("[TEL]", texte)
