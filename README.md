@@ -5,6 +5,10 @@ saves the case file and books a consultation. It runs on a real US phone number 
 reference deployment for a fictional New York personal-injury firm. It has been tested with real test
 calls and a 50-scenario replay suite, not with live clients.
 
+> Portfolio project by Theodore Dignet. The firm, its knowledge base (`connaissances/`) and every caller
+> in the tests and replay reports are fictional: no real client data is stored here. Code comments are in
+> French; the agent, the README and the knowledge base are in English.
+
 ## What it does on a call
 
 1. Answers the call (Telnyx Call Control) and announces that the caller is talking to an AI.
