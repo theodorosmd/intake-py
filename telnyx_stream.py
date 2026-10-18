@@ -9,14 +9,16 @@ import time
 import wave
 from datetime import datetime
 from pathlib import Path
+from typing import Annotated
 from urllib.parse import urlencode
 
 import httpx
 import websockets
 from dotenv import load_dotenv
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
 from conversation import Conversation
+from telnyx_signature import evenement_verifie
 
 load_dotenv()
 
@@ -140,7 +142,7 @@ async def distribuer_tours(conv: Conversation, tours: asyncio.Queue) -> None:
 
 
 @router.post("/telnyx/voice")
-async def voice_webhook(evenement: dict):
+async def voice_webhook(evenement: Annotated[dict, Depends(evenement_verifie)]):
     data = evenement.get("data", {})
     type_evenement = data.get("event_type")
     payload = data.get("payload", {})

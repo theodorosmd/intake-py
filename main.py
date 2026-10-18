@@ -5,14 +5,15 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
-from typing import Literal
+from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 import confidentialite
+from telnyx_signature import evenement_verifie
 from telnyx_stream import router as telnyx_router
 
 confidentialite.installer()  # noms et numéros masqués dans tous les journaux
@@ -169,7 +170,7 @@ def call_ended(c: CallEnded):
 
 
 @app.post("/telnyx/webhook")
-def telnyx_webhook(event: dict):
+def telnyx_webhook(event: Annotated[dict, Depends(evenement_verifie)]):
     data = event.get("data", {})
     payload = data.get("payload", {})
     logger.info(
