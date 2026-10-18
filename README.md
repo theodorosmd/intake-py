@@ -106,7 +106,7 @@ the judge on a stronger model. Reports with full transcripts go to `evals/rappor
 - One node, one gateway replica: no high availability, and no autoscaling until call state is stored outside the process. The node is shared with another workload and its memory is tight.
 - Hosted in Helsinki: fine for tests, but a US deployment should run close to Telnyx and the model for latency.
 - The Telnyx webhook signature is not verified yet.
-- The post-call summary worker is deployed but not yet called at the end of a call.
+- At the end of a call the transcript goes to the summary worker, but the result is only written to the log: it is not yet stored or sent to a CRM.
 - Audio recordings are written unmasked inside the pod and disappear on restart; retention and masking are not implemented.
 - The LiteLLM image is not pinned by digest yet.
 - No transfer to a human yet in this pipeline (the vendor-hosted assistant version had one).
