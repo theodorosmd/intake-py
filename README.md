@@ -66,6 +66,8 @@ cloudflared tunnel --url http://localhost:8000   # public URL for Telnyx
 | `TTS_MODEL`, `TTS_VOICE` | Optional, default `openai/gpt-4o-mini-tts`, `alloy` |
 | `GATEWAY_URL` | Where tools are sent, default `http://127.0.0.1:8000` |
 | `LOGS_EN_CLAIR=1` | Disable log masking for local debugging only |
+| `TELNYX_PUBLIC_KEY` | Telnyx public key used to verify webhook signatures |
+| `MCP_TOKEN` | Bearer token for the MCP endpoint; without it `/mcp` answers 503 |
 
 ## Deployment (Kubernetes)
 
@@ -82,9 +84,33 @@ Telnyx ─ https://intake.theappstudio.co/telnyx/voice ─ Traefik ─ intake-ga
 - **Secrets:** created from local `.env` files by a script; values are never in git or in logs. The LiteLLM virtual key is generated inside the cluster.
 - **Resources and probes:** memory requests and limits set from `kubectl top` measurements (the OOMKilled behaviour was reproduced on purpose); startup, readiness and liveness probes on every pod.
 - **Rollout:** the gateway runs one replica with a `Recreate` strategy, because the state of a call lives in memory; `helm rollback` restores the previous revision.
-- **Exposure:** the ingress publishes only `/telnyx`; a cloud firewall allows 22, 80 and 443; the Kubernetes API is only reachable through an SSH tunnel.
+- **Exposure:** the ingress publishes only `/telnyx` and `/mcp`; a cloud firewall allows 22, 80 and 443; the Kubernetes API is only reachable through an SSH tunnel.
 - **CI (`.github/workflows/ci.yml`):** on every push, `ruff` and the unit tests, then the image build and push.
 - **CD (`deploy.yml` in `pi-intake`):** a manual workflow takes an image tag and runs `helm upgrade`. GitHub holds a dedicated SSH key that can only open a tunnel to the API, and a service account limited to the `intake` namespace.
+
+## MCP server for the firm
+
+The gateway also serves an MCP endpoint at `https://intake.theappstudio.co/mcp`, so the firm can
+work with the intake desk from Claude, Cursor or any MCP client: "which urgent cases came in today?",
+"book John Miller on Thursday afternoon".
+
+| Tool | Does |
+|---|---|
+| `list_intake_cases` | Cases saved by the phone agent, most recent first, with an `urgent_only` filter |
+| `get_intake_case` | One case by id |
+| `list_call_summaries` | Post-call summaries from the summary worker |
+| `list_consultations` | Booked consultations, in order |
+| `find_next_slot` | First free slot on or after a date (read-only) |
+| `book_consultation` | Books it; the same phone number is moved rather than double-booked |
+
+It reads and writes the same in-memory data as the phone agent (`mcp_outils.py`, official Python SDK,
+stateless Streamable HTTP with JSON responses). Every request needs `Authorization: Bearer <MCP_TOKEN>`;
+without a configured token the endpoint stays closed.
+
+```bash
+claude mcp add --transport http pi-intake https://intake.theappstudio.co/mcp \
+  --header "Authorization: Bearer $MCP_TOKEN"
+```
 
 ## Tests and replay
 
@@ -105,7 +131,8 @@ the judge on a stronger model. Reports with full transcripts go to `evals/rappor
 
 - One node, one gateway replica: no high availability, and no autoscaling until call state is stored outside the process. The node is shared with another workload and its memory is tight.
 - Hosted in Helsinki: fine for tests, but a US deployment should run close to Telnyx and the model for latency.
-- The Telnyx webhook signature is not verified yet.
+- MCP access uses one shared token, not per-user OAuth, and the data it serves is lost when the gateway restarts.
+- Telnyx webhook signatures (Ed25519) are verified on `/telnyx/voice` and `/telnyx/webhook`; the media WebSocket `/telnyx/media` is not signed (a secret token in the stream URL would close that).
 - At the end of a call the transcript goes to the summary worker, but the result is only written to the log: it is not yet stored or sent to a CRM.
 - Audio recordings are written unmasked inside the pod and disappear on restart; retention and masking are not implemented.
 - The LiteLLM image is not pinned by digest yet.

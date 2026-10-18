@@ -11,9 +11,12 @@ from zoneinfo import ZoneInfo
 import httpx
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field
+from starlette.routing import Route
 
 import confidentialite
+import mcp_outils
 from telnyx_signature import evenement_verifie
+from telnyx_stream import RESUMES
 from telnyx_stream import router as telnyx_router
 
 confidentialite.installer()  # noms et numéros masqués dans tous les journaux
@@ -32,7 +35,8 @@ async def prechauffer_salutation() -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     tache = asyncio.create_task(prechauffer_salutation())
-    yield
+    async with POINT_MCP.demarrer():  # le serveur MCP de /mcp vit avec l'application
+        yield
     tache.cancel()
 
 
@@ -182,3 +186,40 @@ def telnyx_webhook(event: Annotated[dict, Depends(evenement_verifie)]):
     )
     return {"received": True}
 app.include_router(telnyx_router)
+
+
+# ---------- Serveur MCP : les mêmes données, interrogées depuis un assistant IA ----------
+
+
+def _creneau_libre(preferred_date: date, preferred_hour: int | None) -> dict:
+    try:
+        creneau = premier_creneau_libre(preferred_date, preferred_hour)
+    except HTTPException as erreur:
+        raise ValueError(erreur.detail) from erreur
+    return {"slot": creneau.isoformat(), "slot_spoken": a_voix_haute(creneau)}
+
+
+def _reserver(caller_name: str, phone: str, preferred_date: date, preferred_hour: int | None) -> dict:
+    try:
+        return book_consultation(
+            ConsultationRequest(
+                caller_name=caller_name,
+                phone=phone,
+                preferred_date=preferred_date,
+                preferred_hour=preferred_hour,
+            )
+        )
+    except HTTPException as erreur:
+        raise ValueError(erreur.detail) from erreur
+
+
+MCP = mcp_outils.creer_serveur(
+    dossiers=DOSSIERS,
+    reservations=RESERVATIONS,
+    resumes=RESUMES,
+    est_urgent=lambda dossier: is_urgent(IntakeCase(**dossier)),
+    creneau_libre=_creneau_libre,
+    reserver=_reserver,
+)
+POINT_MCP = mcp_outils.PointAccesMCP(MCP)
+app.router.routes.append(Route("/mcp", POINT_MCP))
