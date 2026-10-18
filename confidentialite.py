@@ -87,8 +87,13 @@ def installer() -> None:
     def fabrique_masquee(*args, **kwargs):
         record = fabrique(*args, **kwargs)
         try:
-            record.msg = masquer(record.getMessage())
-            record.args = ()
+            if record.name == "uvicorn.access":
+                # Le format d'accès d'uvicorn dépouille record.args (5 valeurs) : on les garde
+                # et on masque chaque valeur texte, sans toucher à la structure.
+                record.args = tuple(masquer(a) if isinstance(a, str) else a for a in record.args)
+            else:
+                record.msg = masquer(record.getMessage())
+                record.args = ()
         except Exception:  # noqa: BLE001, S110 — un journal ne doit jamais faire planter l'appel
             pass
         return record

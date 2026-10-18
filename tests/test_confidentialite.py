@@ -60,3 +60,19 @@ def test_toutes_les_lignes_de_journal_sont_masquees(caplog, monkeypatch):
         assert caplog.records[-1].getMessage() == "APPELANT : I'm [NOM], [TEL]"
     finally:
         logging.setLogRecordFactory(origine)
+
+
+def test_les_lignes_d_acces_uvicorn_gardent_leurs_arguments(monkeypatch):
+    monkeypatch.delenv("LOGS_EN_CLAIR", raising=False)
+    origine = logging.getLogRecordFactory()
+    try:
+        c.installer()
+        record = logging.getLogger("uvicorn.access").makeRecord(
+            "uvicorn.access", logging.INFO, "", 0,
+            '%s - "%s %s HTTP/%s" %d',
+            ("10.42.0.1:54336", "GET", "/health", "1.1", 200), None,
+        )
+        assert len(record.args) == 5  # l'AccessFormatter d'uvicorn en dépend
+        assert record.getMessage() == '10.42.0.1:54336 - "GET /health HTTP/1.1" 200'
+    finally:
+        logging.setLogRecordFactory(origine)
