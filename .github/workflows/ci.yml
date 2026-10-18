@@ -1,0 +1,56 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write   # publier l'image sur GHCR avec le jeton fourni par GitHub (aucun mot de passe à stocker)
+
+jobs:
+  verifier:
+    runs-on: ubuntu-latest
+    env:
+      # Valeurs factices : les tests ne contactent aucun service externe.
+      LLM_MODEL: openai/test
+      OPENAI_API_KEY: test
+      TELNYX_API_KEY: test
+      PUBLIC_HOST: example.test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: pip install -r requirements.txt pytest ruff
+      - run: python -m ruff check .
+      - run: python -m pytest -q
+
+  image:
+    needs: verifier
+    if: github.event_name == 'push'   # on ne publie pas depuis une pull request
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/theodorosmd/intake-py
+          tags: type=sha,format=short   # ex. sha-9bfd5a4 : un contenu = une étiquette, pour toujours
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
