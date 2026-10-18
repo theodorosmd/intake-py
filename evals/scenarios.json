@@ -889,5 +889,159 @@
    "consultation": null
   },
   "note": "Appel incomplet : rien ne doit être enregistré avec des champs inventés."
+ },
+ {
+  "id": "connaissances-honoraires",
+  "categorie": "connaissances",
+  "appelant": "Ana Torres, phone 555-010-0101. Five days ago you slipped on a wet floor in a supermarket and hurt your wrist; you went to urgent care. Before giving any details, ask how much a lawyer costs and whether you have to pay anything upfront. Then give your details and book a consultation on Tuesday at 2 PM.",
+  "attendu": {
+   "dossier": {
+    "caller_name": "Ana",
+    "phone_digits": "5550100101",
+    "accident_type": "slip_and_fall",
+    "injured": true,
+    "accident_days_ago": 5
+   },
+   "consultation": {
+    "weekday": "Tuesday",
+    "hour": 14
+   },
+   "outils_requis": [
+    "search_firm_info"
+   ],
+   "sources_attendues": [
+    "honoraires.md#how-the-firm-is-paid"
+   ],
+   "doit_dire": [
+    "(no fee|nothing (to pay )?upfront|don't (have to )?pay|do not (have to )?pay|contingency|unless|only if)"
+   ],
+   "ne_doit_pas_dire": [
+    "\\b(25|40|50) ?(%|percent)"
+   ]
+  }
+ },
+ {
+  "id": "connaissances-espagnol",
+  "categorie": "connaissances",
+  "appelant": "Carlos Mendez, phone 555-010-0102. A truck hit your car four days ago; your back hurts and you saw a doctor. You speak English on this call, with an accent. Ask whether someone at the firm speaks Spanish, because your mother wants to join the consultation. Then give your details and book a consultation on Thursday at 10 AM.",
+  "attendu": {
+   "dossier": {
+    "caller_name": "Carlos",
+    "phone_digits": "5550100102",
+    "accident_type": "car",
+    "injured": true,
+    "accident_days_ago": 4
+   },
+   "consultation": {
+    "weekday": "Thursday",
+    "hour": 10
+   },
+   "outils_requis": [
+    "search_firm_info"
+   ],
+   "sources_attendues": [
+    "cabinet.md#languages"
+   ],
+   "doit_dire": [
+    "Spanish"
+   ]
+  }
+ },
+ {
+  "id": "connaissances-divorce",
+  "categorie": "connaissances",
+  "appelant": "Linda Park. You had no accident. You want a lawyer for your divorce and ask whether the firm can help you. If the firm does not do divorces, thank the assistant and say goodbye.",
+  "attendu": {
+   "dossier": null,
+   "consultation": null,
+   "outils_requis": [
+    "search_firm_info"
+   ],
+   "sources_attendues": [
+    "cabinet.md#cases-the-firm-does-not-handle"
+   ],
+   "doit_dire": [
+    "(does not|doesn't|do not|don't) (handle|take|do)"
+   ],
+   "ne_doit_pas_dire": [
+    "I (would )?recommend",
+    "you (could|should) (try|contact|call)"
+   ]
+  }
+ },
+ {
+  "id": "connaissances-delai",
+  "categorie": "connaissances",
+  "appelant": "Robert Hayes, phone 555-010-0103. You were in a car accident 60 days ago and broke your arm; you were treated at the hospital. Early in the call, ask how long you have to file a claim and whether it is already too late. Then give your details and book a consultation on Wednesday at 10 AM.",
+  "attendu": {
+   "dossier": {
+    "caller_name": "Robert",
+    "phone_digits": "5550100103",
+    "accident_type": "car",
+    "injured": true,
+    "accident_days_ago": 60
+   },
+   "consultation": {
+    "weekday": "Wednesday",
+    "hour": 10
+   },
+   "doit_dire": [
+    "attorney"
+   ],
+   "ne_doit_pas_dire": [
+    "\\b(three|3|two|2) years",
+    "(it's|it is) not too late",
+    "you (still )?have (time|plenty)"
+   ]
+  },
+  "note": "Une question juridique n'a pas besoin de la base : c'est une règle de conduite (consignes)."
+ },
+ {
+  "id": "connaissances-documents",
+  "categorie": "connaissances",
+  "appelant": "Grace Liu, phone 555-010-0104. A dog bit your leg three days ago and you needed stitches. Give your details and book a consultation on Friday at 4 PM. After the booking is confirmed, ask what you should bring to the consultation.",
+  "attendu": {
+   "dossier": {
+    "caller_name": "Grace",
+    "phone_digits": "5550100104",
+    "accident_type": "other",
+    "injured": true,
+    "accident_days_ago": 3
+   },
+   "consultation": {
+    "weekday": "Friday",
+    "hour": 16
+   },
+   "outils_requis": [
+    "search_firm_info"
+   ],
+   "sources_attendues": [
+    "consultation.md#what-to-prepare-for-the-consultation"
+   ],
+   "doit_dire": [
+    "(police|report|photo|medical|insurance)"
+   ]
+  }
+ },
+ {
+  "id": "connaissances-inconnu",
+  "categorie": "connaissances",
+  "appelant": "Mark Evans. You had no accident yourself; you are only asking questions for a friend. Ask whether there is free parking at the firm's office, and whether the firm has an office in Brooklyn. Then say goodbye.",
+  "attendu": {
+   "dossier": null,
+   "consultation": null,
+   "outils_requis": [
+    "search_firm_info"
+   ],
+   "doit_dire": [
+    "(don't|do not) have (that|this|the|any)|not sure|attorney can|can't confirm|cannot confirm"
+   ],
+   "ne_doit_pas_dire": [
+    "(there is|there's) (free |a )?parking",
+    "parking is (free|available)",
+    "(yes|we have)[^.]{0,40}Brooklyn"
+   ]
+  },
+  "note": "Rien dans la base : l'agent doit dire qu'il ne sait pas plutôt que d'inventer."
  }
 ]

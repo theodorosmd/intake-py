@@ -90,6 +90,25 @@ Telnyx ─ https://intake.theappstudio.co/telnyx/voice ─ Traefik ─ intake-ga
 - **CI (`.github/workflows/ci.yml`):** on every push, `ruff` and the unit tests, then the image build and push.
 - **CD (`deploy.yml` in `pi-intake`):** a manual workflow takes an image tag and runs `helm upgrade`. GitHub holds a dedicated SSH key that can only open a tunnel to the API, and a service account limited to the `intake` namespace.
 
+## Firm knowledge (RAG)
+
+Callers ask about the firm itself: what it costs, whether someone speaks Spanish, what to bring.
+The agent answers those questions from the firm's own information, not from the model's memory.
+
+- **Source:** Markdown files in `connaissances/` (fictional demo content), one chunk per `##` section.
+  They state facts about the firm and never give legal advice: legal questions have their own
+  section, which sends the caller to the attorney.
+- **Index:** at startup the gateway embeds the sections with `text-embedding-3-small` and stores them
+  in Postgres with pgvector (`knowledge_chunks`, HNSW index, cosine distance). Indexing is incremental:
+  a hash per section, so only new or edited sections are embedded again, and removed ones are deleted.
+- **Retrieval:** the agent calls the `search_firm_info` tool; the gateway embeds the question and returns
+  the closest sections with their source and score. Below a similarity threshold (`RAG_SEUIL`, 0.22 by
+  default, set from the calibration run: on-topic questions scored 0.26 or more, off-topic ones 0.19 or less) nothing is returned and the agent says it does not have that information.
+- **Checks:** 6 replay scenarios (`connaissances-*`) verify that the tool was called, that the expected
+  section came back, and that the agent neither invents a fact (free parking, a Brooklyn office) nor
+  answers a legal question (filing deadline). `python -m evals.rag_calibrage` shows the real scores of
+  on-topic and off-topic questions to set the threshold.
+
 ## MCP server for the firm
 
 The gateway also serves an MCP endpoint at `https://intake.theappstudio.co/mcp`, so the firm can
@@ -103,6 +122,7 @@ work with the intake desk from Claude, Cursor or any MCP client: "which urgent c
 | `list_call_summaries` | Post-call summaries from the summary worker |
 | `list_consultations` | Booked consultations, in order |
 | `find_next_slot` | First free slot on or after a date (read-only) |
+| `search_firm_knowledge` | The same search as the phone agent, with sources |
 | `book_consultation` | Books it; the same phone number is moved rather than double-booked |
 
 It reads and writes the same Postgres data as the phone agent (`mcp_outils.py`, official Python SDK,
@@ -135,6 +155,9 @@ the judge on a stronger model. Reports with full transcripts go to `evals/rappor
 - One node, one gateway replica: no high availability, and no autoscaling until call state is stored outside the process. The node is shared with another workload and its memory is tight.
 - Hosted in Helsinki: fine for tests, but a US deployment should run close to Telnyx and the model for latency.
 - MCP access uses one shared token, not per-user OAuth.
+- Embeddings go straight to OpenAI (like text-to-speech), not through the LiteLLM proxy, so they are not
+  counted in the proxy's budgets. Telnyx also offers embeddings and similarity search over its storage
+  buckets; pgvector was chosen to keep retrieval inside the cluster, next to the data.
 - Backups stay on the same server as the database: they protect against mistakes, not against losing the server. No retention or deletion policy for callers' personal data yet.
 - Telnyx webhook signatures (Ed25519) are verified on `/telnyx/voice` and `/telnyx/webhook`; the media WebSocket `/telnyx/media` is not signed (a secret token in the stream URL would close that).
 - At the end of a call the transcript goes to the summary worker, but the result is only written to the log: it is not yet stored or sent to a CRM.

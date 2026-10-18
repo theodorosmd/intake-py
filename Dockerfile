@@ -4,5 +4,6 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY *.py schema.sql ./
 COPY evals evals
+COPY connaissances connaissances
 EXPOSE 8000
 CMD ["fastapi", "run", "main.py", "--port", "8000"]

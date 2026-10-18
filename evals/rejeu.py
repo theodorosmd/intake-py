@@ -27,6 +27,7 @@ from fastapi.testclient import TestClient
 
 import agent_vocal
 import main
+import rag
 
 DOSSIER = Path(__file__).parent
 SCENARIOS = DOSSIER / "scenarios.json"
@@ -84,7 +85,8 @@ ANNONCE = re.compile(
 # sur ce point : on le vérifie sans lui, sur la réplique du tour où l'outil a réservé).
 ACCORD = re.compile(
     r"\b(yes|yeah|yep|sure|ok(ay)?|please|works|book|fine|good|great|perfect|let's"
-    r"|monday|tuesday|wednesday|thursday|friday|\d{1,2}\s*(am|pm|a\.m\.|p\.m\.)|o'clock)\b",
+    r"|monday|tuesday|wednesday|thursday|friday|\d{1,2}\s*(am|pm|a\.m\.|p\.m\.)|o'clock"
+    r"|s[ií]|claro|de acuerdo|por favor|reserv[ae]|lunes|martes|mi[eé]rcoles|jueves|viernes)\b",
     re.IGNORECASE,
 )
 
@@ -301,6 +303,19 @@ def verifier(scenario: dict, tours: list[dict], aujourdhui: date | None = None) 
                     f"créneau final : {jour} {creneau.hour} h, "
                     f"attendu {voulu.get('weekday', '?')} {voulu.get('hour', '?')} h"
                 )
+    appels = [o for t in tours for o in t["outils"]]
+    for nom in attendu.get("outils_requis", []):
+        if not any(o["nom"] == nom for o in appels):
+            echecs.append(f"{nom} jamais appelé")
+    trouvees = {
+        r["source"]
+        for o in appels
+        if o["nom"] == "search_firm_info"
+        for r in o["resultat"].get("results", [])
+    }
+    for source in attendu.get("sources_attendues", []):
+        if source not in trouvees:
+            echecs.append(f"la recherche n'a pas renvoyé {source} (renvoyé : {sorted(trouvees)})")
     if "appels_reservation_max" in attendu and len(reservations) > attendu["appels_reservation_max"]:
         echecs.append(f"book_consultation appelé {len(reservations)} fois")
 
@@ -401,6 +416,7 @@ async def principal() -> None:
     for nom in ("agent_vocal", "main", "LiteLLM", "httpx"):
         logging.getLogger(nom).setLevel(logging.WARNING)
 
+    print(f"Base de connaissances : {await rag.indexer(main.STOCKAGE)}")
     scenarios = json.loads(SCENARIOS.read_text())
     if args.seulement:
         voulus = set(args.seulement.split(","))

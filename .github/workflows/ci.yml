@@ -15,7 +15,7 @@ jobs:
     # Une vraie base pour la CI : toute la suite tourne sur Postgres, comme en production.
     services:
       postgres:
-        image: postgres:16
+        image: pgvector/pgvector:pg16   # Postgres 16 + pgvector, comme en production
         env:
           POSTGRES_PASSWORD: test
           POSTGRES_DB: intake_test

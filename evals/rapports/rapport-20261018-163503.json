@@ -1,0 +1,68 @@
+{
+ "date": "2026-10-18T16:35:03",
+ "modele": "openai/llm-agent",
+ "reussis": 0,
+ "total": 6,
+ "resultats": [
+  {
+   "id": "connaissances-honoraires",
+   "categorie": "connaissances",
+   "essai": 1,
+   "reussi": false,
+   "echecs": [
+    "erreur : litellm.InternalServerError: InternalServerError: OpenAIException - Connection error."
+   ],
+   "transcription": "ASSISTANT: Hello, you've reached the firm's intake line. I'm an AI assistant. How can I help you today?"
+  },
+  {
+   "id": "connaissances-espagnol",
+   "categorie": "connaissances",
+   "essai": 1,
+   "reussi": false,
+   "echecs": [
+    "erreur : litellm.InternalServerError: InternalServerError: OpenAIException - Connection error."
+   ],
+   "transcription": "ASSISTANT: Hello, you've reached the firm's intake line. I'm an AI assistant. How can I help you today?"
+  },
+  {
+   "id": "connaissances-divorce",
+   "categorie": "connaissances",
+   "essai": 1,
+   "reussi": false,
+   "echecs": [
+    "erreur : litellm.InternalServerError: InternalServerError: OpenAIException - Connection error."
+   ],
+   "transcription": "ASSISTANT: Hello, you've reached the firm's intake line. I'm an AI assistant. How can I help you today?"
+  },
+  {
+   "id": "connaissances-delai",
+   "categorie": "connaissances",
+   "essai": 1,
+   "reussi": false,
+   "echecs": [
+    "erreur : litellm.InternalServerError: InternalServerError: OpenAIException - Connection error."
+   ],
+   "transcription": "ASSISTANT: Hello, you've reached the firm's intake line. I'm an AI assistant. How can I help you today?"
+  },
+  {
+   "id": "connaissances-documents",
+   "categorie": "connaissances",
+   "essai": 1,
+   "reussi": false,
+   "echecs": [
+    "erreur : litellm.InternalServerError: InternalServerError: OpenAIException - Connection error."
+   ],
+   "transcription": "ASSISTANT: Hello, you've reached the firm's intake line. I'm an AI assistant. How can I help you today?"
+  },
+  {
+   "id": "connaissances-inconnu",
+   "categorie": "connaissances",
+   "essai": 1,
+   "reussi": false,
+   "echecs": [
+    "erreur : litellm.InternalServerError: InternalServerError: OpenAIException - Connection error."
+   ],
+   "transcription": "ASSISTANT: Hello, you've reached the firm's intake line. I'm an AI assistant. How can I help you today?"
+  }
+ ]
+}

@@ -15,6 +15,7 @@ from starlette.routing import Route
 
 import confidentialite
 import mcp_outils
+import rag
 from stockage import STOCKAGE, CreneauPris
 from telnyx_signature import evenement_verifie
 from telnyx_stream import router as telnyx_router
@@ -32,13 +33,23 @@ async def prechauffer_salutation() -> None:
         logging.getLogger(__name__).warning("Salutation non préparée : %r", erreur)
 
 
+async def indexer_connaissances() -> None:
+    """Met à jour la base de connaissances au démarrage, sans retarder les appels."""
+    try:
+        await rag.indexer(STOCKAGE)
+    except Exception as erreur:  # noqa: BLE001 — l'agent fonctionne sans, il dira qu'il ne sait pas
+        logging.getLogger(__name__).warning("Base de connaissances non indexée : %r", erreur)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     await asyncio.to_thread(STOCKAGE.preparer)  # connexion à la base et schéma (rien en mémoire)
     tache = asyncio.create_task(prechauffer_salutation())
+    index = asyncio.create_task(indexer_connaissances())
     async with POINT_MCP.demarrer():  # le serveur MCP de /mcp vit avec l'application
         yield
     tache.cancel()
+    index.cancel()
     await asyncio.to_thread(STOCKAGE.fermer)
 
 
@@ -67,6 +78,10 @@ class IntakeCase(BaseModel):
 class CallEnded(BaseModel):
     call_id: str
     transcript: str = Field(min_length=1)
+
+
+class KnowledgeQuery(BaseModel):
+    question: str = Field(min_length=3, max_length=500)
 
 
 class ConsultationRequest(BaseModel):
@@ -152,6 +167,16 @@ def book_consultation(demande: ConsultationRequest):
     }
 
 
+@app.post("/knowledge/search")
+async def search_knowledge(q: KnowledgeQuery):
+    """Recherche dans les informations du cabinet (outil search_firm_info de l'agent)."""
+    try:
+        return await rag.rechercher(STOCKAGE, q.question)
+    except Exception as erreur:
+        logger.warning("Recherche impossible : %r", erreur)
+        raise HTTPException(status_code=503, detail="knowledge search unavailable") from erreur
+
+
 @app.post("/call-ended")
 def call_ended(c: CallEnded):
     debut = time.perf_counter()
@@ -218,6 +243,7 @@ def _reserver(caller_name: str, phone: str, preferred_date: date, preferred_hour
 
 MCP = mcp_outils.creer_serveur(
     stockage=STOCKAGE,
+    rechercher=lambda question: rag.rechercher(STOCKAGE, question),
     est_urgent=lambda dossier: is_urgent(IntakeCase(**dossier)),
     creneau_libre=_creneau_libre,
     reserver=_reserver,

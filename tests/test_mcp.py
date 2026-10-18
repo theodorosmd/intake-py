@@ -32,7 +32,7 @@ def appeler(outil: str, arguments: dict | None = None):
     return asyncio.run(_appel())
 
 
-def test_les_six_outils_sont_exposes():
+def test_les_outils_sont_exposes():
     async def _liste():
         async with Client(main.MCP) as client:
             return await client.list_tools()
@@ -45,6 +45,7 @@ def test_les_six_outils_sont_exposes():
         "list_consultations",
         "find_next_slot",
         "book_consultation",
+        "search_firm_knowledge",
     }
 
 

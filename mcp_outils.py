@@ -10,7 +10,7 @@ main.py le lui passe à la création. Sans jeton configuré, le point d'accès r
 
 import hmac
 import os
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import date
 from typing import Any
@@ -48,6 +48,7 @@ def creer_serveur(
     est_urgent: Callable[[dict], bool],
     creneau_libre: Callable[[date, int | None], dict[str, Any]],
     reserver: Callable[[str, str, date, int | None], dict[str, Any]],
+    rechercher: Callable[[str], Awaitable[dict[str, Any]]] | None = None,
 ) -> MCPServer:
     serveur = MCPServer(
         name="pi-intake",
@@ -104,6 +105,14 @@ def creer_serveur(
         A caller (same phone number) who already has a slot is moved to the new one.
         """
         return Reservation(**reserver(caller_name, phone, preferred_date, preferred_hour))
+
+    if rechercher is not None:
+
+        @serveur.tool(annotations=LECTURE)
+        async def search_firm_knowledge(question: str) -> dict[str, Any]:
+            """Search the firm's own information (fees, hours, languages, cases handled,
+            how consultations work). Results come with their source section."""
+            return await rechercher(question)
 
     return serveur
 

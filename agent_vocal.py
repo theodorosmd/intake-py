@@ -53,6 +53,15 @@ def consignes() -> str:
         "sympathy and ask whether they have received medical care, but never tell "
         "them what to do about it. "
         "Never promise anything you cannot do yourself: no callbacks, no outcomes. "
+        "When the caller asks about the firm itself (fees, cost, hours, location, "
+        "languages, which cases it takes, how the consultation works, what to bring), "
+        "call search_firm_info and answer only from its results, in one or two short "
+        "sentences; if it finds nothing, say you do not have that information and that "
+        "the attorney can cover it at the consultation. Never guess a fact about the firm. "
+        "If the caller asks a legal question (how long they have to file, whether they "
+        "can win, what the case is worth, what to tell an insurance company), say you "
+        "cannot give legal advice and that the attorney will answer it during the free "
+        "consultation; do not guess, even to reassure them. "
         "Once you have the name, phone number, accident date, accident type and "
         "whether they were injured, call save_intake once, right away, even if the "
         "caller does not want a consultation; never ask permission to record. Then "
@@ -139,8 +148,32 @@ OUTILS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_firm_info",
+            "description": "Search the firm's own information: fees and costs, office hours and "
+            "location, languages, which cases the firm handles, how the consultation works, "
+            "what to prepare. Use it before answering any question about the firm.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {
+                        "type": "string",
+                        "description": "The caller's question, rephrased as a short standalone question",
+                    }
+                },
+                "required": ["question"],
+            },
+        },
+    },
 ]
-CHEMINS_OUTILS = {"save_intake": "/intake", "book_consultation": "/consultations"}
+CHEMINS_OUTILS = {
+    "save_intake": "/intake",
+    "book_consultation": "/consultations",
+    "search_firm_info": "/knowledge/search",
+}
+OUTILS_SANS_EFFET = {"search_firm_info"}  # lecture seule : n'autorise pas une annonce de réservation
 SALUTATION = (
     "Hello, you've reached the firm's intake line. I'm an AI assistant. "
     "How can I help you today?"
@@ -186,6 +219,7 @@ def decouper_phrases(tampon: str) -> tuple[list[str], str]:
 # annonçait alors le changement sans l'avoir fait.
 SUITE_OUTIL = {
     "save_intake": "Do not call it again.",
+    "search_firm_info": "Answer only from these results. Search again only for a different question.",
     "book_consultation": (
         "If the caller wants another day or time, call book_consultation again "
         "with the new slot before saying it changed."
@@ -339,7 +373,8 @@ async def phrases_llm(historique: list[dict], faits: list[str] | None = None):
                 }
             )
             if "error" not in resultat:
-                outil_fait = True
+                if a["name"] not in OUTILS_SANS_EFFET:
+                    outil_fait = True
                 if faits is not None:
                     faits.append(note_outil(a["name"], resultat))
 

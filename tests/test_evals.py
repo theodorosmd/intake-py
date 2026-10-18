@@ -140,3 +140,27 @@ def test_rappel_du_rendez_vous_en_cours_n_est_pas_une_fausse_annonce():
     tours[1] = tour("Your consultation is now booked for Friday at 4 PM.")
     echecs = rejeu.verifier(SCENARIO, tours, aujourdhui=date(2026, 10, 17))
     assert any("annonce sans outil" in e for e in echecs)
+
+
+def test_outil_de_recherche_et_source_attendue():
+    scenario = {"attendu": {"outils_requis": ["search_firm_info"],
+                            "sources_attendues": ["honoraires.md#how-the-firm-is-paid"]}}
+    echecs = rejeu.verifier(scenario, [tour("There is no fee unless we win.")])
+    assert any("jamais appelé" in e for e in echecs)
+    assert any("honoraires.md#how-the-firm-is-paid" in e for e in echecs)
+
+    recherche = outil(
+        "search_firm_info", {"question": "fees"},
+        {"results": [{"source": "honoraires.md#how-the-firm-is-paid", "text": "..."}], "note": None},
+    )
+    assert rejeu.verifier(scenario, [tour("There is no fee unless we win.", [recherche])]) == []
+
+
+def test_les_scenarios_de_connaissances_citent_des_sections_qui_existent():
+    import rag
+
+    ids = {m.id for m in rag.decouper()}
+    scenarios = json.loads(rejeu.SCENARIOS.read_text())
+    for s in scenarios:
+        for source in s.get("attendu", {}).get("sources_attendues", []):
+            assert source in ids, (s["id"], source)

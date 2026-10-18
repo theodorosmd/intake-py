@@ -9,7 +9,9 @@ d'appel et le serveur MCP passent tous par elle.
 """
 
 import json
+import math
 import os
+from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
 from typing import Protocol
@@ -33,6 +35,11 @@ class Stockage(Protocol):
     def rendez_vous(self) -> list[tuple[datetime, str]]: ...
     def enregistrer_resume(self, call_id: str, resume: dict) -> None: ...
     def resumes(self) -> list[dict]: ...
+    # Base de connaissances (RAG). `vider` n'y touche pas : ce n'est pas une donnée d'appel.
+    def empreintes_connaissances(self) -> dict[str, str]: ...
+    def enregistrer_connaissances(self, morceaux_vecteurs: list) -> None: ...
+    def supprimer_connaissances(self, ids: Iterable[str]) -> None: ...
+    def chercher_connaissances(self, vecteur: list[float], nb: int) -> list[dict]: ...
 
 
 class Memoire:
@@ -43,6 +50,7 @@ class Memoire:
         self._reservations: dict[datetime, str] = {}
         self._par_tel: dict[str, datetime] = {}
         self._resumes: dict[str, dict] = {}
+        self._connaissances: dict[str, tuple] = {}  # id -> (morceau, vecteur)
 
     def preparer(self) -> None:
         pass
@@ -84,6 +92,34 @@ class Memoire:
 
     def resumes(self) -> list[dict]:
         return list(reversed(self._resumes.values()))
+
+    def empreintes_connaissances(self) -> dict[str, str]:
+        return {i: m.empreinte for i, (m, _) in self._connaissances.items()}
+
+    def enregistrer_connaissances(self, morceaux_vecteurs: list) -> None:
+        for morceau, vecteur in morceaux_vecteurs:
+            self._connaissances[morceau.id] = (morceau, vecteur)
+
+    def supprimer_connaissances(self, ids: Iterable[str]) -> None:
+        for i in ids:
+            self._connaissances.pop(i, None)
+
+    def chercher_connaissances(self, vecteur: list[float], nb: int) -> list[dict]:
+        scores = [
+            {"id": m.id, "title": m.titre, "text": m.texte, "score": _cosinus(vecteur, v)}
+            for m, v in self._connaissances.values()
+        ]
+        return sorted(scores, key=lambda r: r["score"], reverse=True)[:nb]
+
+
+def _cosinus(a: list[float], b: list[float]) -> float:
+    norme = math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b))
+    return sum(x * y for x, y in zip(a, b, strict=True)) / norme if norme else 0.0
+
+
+def _litteral_vecteur(vecteur: list[float]) -> str:
+    """Le format texte de pgvector, '[0.1,0.2,…]' : pas besoin d'un adaptateur Python."""
+    return "[" + ",".join(f"{x:.7g}" for x in vecteur) + "]"
 
 
 class Postgres:
@@ -189,6 +225,36 @@ class Postgres:
                 )
             ]
 
+
+    def empreintes_connaissances(self) -> dict[str, str]:
+        with self._connexion() as connexion:
+            return dict(connexion.execute("SELECT id, content_hash FROM knowledge_chunks").fetchall())
+
+    def enregistrer_connaissances(self, morceaux_vecteurs: list) -> None:
+        with self._connexion() as connexion, connexion.transaction():
+            for m, vecteur in morceaux_vecteurs:
+                connexion.execute(
+                    """INSERT INTO knowledge_chunks (id, source, title, content, content_hash, embedding)
+                       VALUES (%s, %s, %s, %s, %s, %s::vector)
+                       ON CONFLICT (id) DO UPDATE SET source = EXCLUDED.source, title = EXCLUDED.title,
+                         content = EXCLUDED.content, content_hash = EXCLUDED.content_hash,
+                         embedding = EXCLUDED.embedding, indexed_at = clock_timestamp()""",
+                    (m.id, m.source, m.titre, m.texte, m.empreinte, _litteral_vecteur(vecteur)),
+                )
+
+    def supprimer_connaissances(self, ids: Iterable[str]) -> None:
+        with self._connexion() as connexion:
+            connexion.execute("DELETE FROM knowledge_chunks WHERE id = ANY(%s)", (list(ids),))
+
+    def chercher_connaissances(self, vecteur: list[float], nb: int) -> list[dict]:
+        # <=> : distance cosinus de pgvector (0 = identique) ; l'index HNSW accélère ce tri.
+        with self._connexion() as connexion:
+            lignes = connexion.execute(
+                """SELECT id, title, content, 1 - (embedding <=> %s::vector) AS score
+                   FROM knowledge_chunks ORDER BY embedding <=> %s::vector LIMIT %s""",
+                (_litteral_vecteur(vecteur), _litteral_vecteur(vecteur), nb),
+            ).fetchall()
+        return [{"id": i, "title": t, "text": c, "score": float(sc)} for i, t, c, sc in lignes]
 
 def ouvrir(url: str | None) -> Stockage:
     return Postgres(url) if url else Memoire()
