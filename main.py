@@ -46,10 +46,12 @@ async def lifespan(_app: FastAPI):
     await asyncio.to_thread(STOCKAGE.preparer)  # connexion à la base et schéma (rien en mémoire)
     tache = asyncio.create_task(prechauffer_salutation())
     index = asyncio.create_task(indexer_connaissances())
+    chaud = asyncio.create_task(rag.garder_au_chaud())  # première recherche à 0,2 s au lieu de 1,7 s
     async with POINT_MCP.demarrer():  # le serveur MCP de /mcp vit avec l'application
         yield
     tache.cancel()
     index.cancel()
+    chaud.cancel()
     await asyncio.to_thread(STOCKAGE.fermer)
 
 

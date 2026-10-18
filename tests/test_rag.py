@@ -129,3 +129,32 @@ def test_l_agent_connait_l_outil_et_sa_route():
 
 def test_le_dossier_de_connaissances_est_dans_l_image():
     assert "connaissances" in Path(__file__).parents[1].joinpath("Dockerfile").read_text()
+
+
+def test_le_rechauffage_appelle_l_api_regulierement(faux_embeddings):
+    async def scenario():
+        tache = asyncio.create_task(rag.garder_au_chaud(intervalle=0.01))
+        await asyncio.sleep(0.05)
+        tache.cancel()
+
+    asyncio.run(scenario())
+    assert len(faux_embeddings) >= 2  # au moins deux réchauffages en 50 ms
+
+
+def test_le_rechauffage_survit_a_une_panne(monkeypatch):
+    appels = []
+
+    async def en_panne(textes):
+        appels.append(1)
+        raise RuntimeError("API indisponible")
+
+    monkeypatch.setattr(rag, "vectoriser", en_panne)
+
+    async def scenario():
+        tache = asyncio.create_task(rag.garder_au_chaud(intervalle=0.01))
+        await asyncio.sleep(0.05)
+        assert not tache.done()  # la panne est journalisée, la boucle continue
+        tache.cancel()
+
+    asyncio.run(scenario())
+    assert len(appels) >= 2

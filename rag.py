@@ -27,6 +27,10 @@ logger = logging.getLogger("uvicorn.error")
 DOSSIER = Path(__file__).with_name("connaissances")
 DIMENSIONS = 1536  # text-embedding-3-small ; la colonne vector(1536) du schéma en dépend
 NB_RESULTATS = 3
+# Mesuré en production (18 oct.) : 1,7 s pour la première recherche après un moment sans appel
+# (la connexion à l'API d'embeddings est à rouvrir), 0,2 s ensuite. Un petit embedding régulier
+# garde la connexion ouverte ; il coûte une poignée de tokens.
+RECHAUFFAGE_SECONDES = float(os.getenv("RAG_RECHAUFFAGE", "240"))
 # En dessous, la section n'a probablement rien à voir avec la question : mieux vaut que
 # l'agent dise qu'il ne sait pas plutôt que de répondre à côté. Réglé avec evals/rag_calibrage.py
 # (18 oct. : bonnes réponses ≥ 0,26, questions hors sujet ≤ 0,19).
@@ -88,6 +92,19 @@ async def vectoriser(textes: list[str]) -> list[list[float]]:
         timeout=10,
     )
     return [d["embedding"] if isinstance(d, dict) else d.embedding for d in reponse.data]
+
+
+async def garder_au_chaud(intervalle: float = RECHAUFFAGE_SECONDES) -> None:
+    """Tourne pendant toute la vie de la gateway (tâche de fond annulée à l'arrêt)."""
+    while True:
+        await asyncio.sleep(intervalle)
+        debut = time.perf_counter()
+        try:
+            await vectoriser(["keep-alive"])
+        except Exception as erreur:  # noqa: BLE001 — une recherche échouée se verra à l'appel suivant
+            logger.warning("Réchauffage des embeddings impossible : %r", erreur)
+        else:
+            logger.debug("Réchauffage des embeddings : %d ms", (time.perf_counter() - debut) * 1000)
 
 
 async def indexer(stockage: Stockage, dossier: Path = DOSSIER) -> dict:

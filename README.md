@@ -41,6 +41,8 @@ caller ─ phone ─ Telnyx ─ media WebSocket ─┬─ STT (Deepgram via Teln
 | Time to first sound (median) | 3.6 s → 2.64 s → 2.54 s | Per-turn log on real test calls: before streaming, after streaming and model change, latest 14-turn call |
 | Time to first sound on the cluster | median 3.0 s on a first call, 2.2 s total median on a later one | Same per-turn log, k3s in Helsinki (the Telnyx edge and the model are far from it) |
 | Model time to first token | 1.19 s (`gpt-4.1-mini`) vs 1.93 s (previous model) | `litellm/mesure_ttft.py` in the gateway repo, 8 runs each |
+| Knowledge search during a call | 218 ms, but 1,748 ms for the first search after an idle period | `RAG : … ms` log line on real calls (Oct 18); the cold case comes from reopening the embeddings connection, now kept warm by a small embedding every 4 minutes |
+| Knowledge replay | 6/6 scenarios (4/6 before two fixes) | `python -m evals.rejeu --seulement connaissances-…` |
 
 The appendix of the deployment playbook lists every defect found and how it was fixed.
 
