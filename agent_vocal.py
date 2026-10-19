@@ -415,8 +415,8 @@ async def reponse_llm(historique: list[dict]) -> str:
 _voix_deja_faites: dict[str, bytes] = {}
 
 
-# Une synthèse normale dure 1 à 3 s ; au-delà de DELAI_VOIX secondes, la requête est bloquée.
-DELAI_VOIX = 5
+# Une synthèse normale dure 1 à 3 s ; au-delà de DELAI_VOIX secondes, on lance une requête de plus.
+DELAI_VOIX = 2.5
 ESSAIS_VOIX = 3
 
 
@@ -436,24 +436,39 @@ async def synthese_vocale(texte: str) -> bytes:
     Les phrases déjà synthétisées (la salutation, par exemple) sont gardées
     en mémoire : la deuxième fois, elles partent sans attendre.
 
-    OpenAI laisse parfois une requête sans réponse (mesuré le 19 octobre : une sur
-    vingt à une sur deux selon le modèle). On ne l'attend pas : au bout de
-    DELAI_VOIX secondes on la jette et on en lance une neuve, qui répond en 1 à 2 s.
+    OpenAI laisse parfois une requête sans réponse (mesuré le 19 octobre : de une sur
+    vingt à une sur cinq en appel). On ne l'attend pas : au bout de DELAI_VOIX secondes
+    on en lance une deuxième SANS abandonner la première (une requête lente peut encore
+    répondre), et on garde la première réponse reçue. Une requête en échec en
+    déclenche une neuve tout de suite.
     """
     if texte in _voix_deja_faites:
         logger.info("Voix : deja prete (0 ms)")
         return _voix_deja_faites[texte]
     debut = time.perf_counter()
-    for essai in range(1, ESSAIS_VOIX + 1):
-        try:
-            audio = await asyncio.wait_for(_demander_voix(texte), DELAI_VOIX)
-            break
-        except TimeoutError:
-            logger.warning(
-                "Voix : essai %d sans reponse apres %d s", essai, DELAI_VOIX
+    en_cours: set[asyncio.Task] = set()
+    audio = None
+    try:
+        for essai in range(1, ESSAIS_VOIX + 1):
+            en_cours.add(asyncio.create_task(_demander_voix(texte)))
+            finies, en_cours = await asyncio.wait(
+                en_cours, timeout=DELAI_VOIX, return_when=asyncio.FIRST_COMPLETED
             )
-    else:
-        raise TimeoutError(f"synthese vocale sans reponse apres {ESSAIS_VOIX} essais")
+            reussies = [t for t in finies if t.exception() is None]
+            if reussies:
+                audio = reussies[0].result()
+                break
+            logger.warning(
+                "Voix : requete %d sur %d sans resultat (delai %.1f s), on en lance une autre",
+                essai,
+                ESSAIS_VOIX,
+                DELAI_VOIX,
+            )
+    finally:
+        for tache in en_cours:
+            tache.cancel()
+    if audio is None:
+        raise TimeoutError(f"synthese vocale sans reponse apres {ESSAIS_VOIX} requetes")
     if texte == SALUTATION:
         _voix_deja_faites[texte] = audio
     logger.info(
