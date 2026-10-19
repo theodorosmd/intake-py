@@ -298,14 +298,19 @@ async def phrases_llm(historique: list[dict], faits: list[str] | None = None):
     messages = [{"role": "system", "content": consignes()}, *historique]
     outil_fait, corrige = False, False
     for _ in range(MAX_RONDES_OUTILS + 1):
+        t_envoi = time.perf_counter()
         flux = await litellm.acompletion(
             **parametres, messages=messages, tools=OUTILS, stream=True, timeout=15
         )
+        t_entetes = time.perf_counter()
+        t_morceau = t_texte = None
         tampon, dit = "", ""
         retenues: list[str] = []
         appels: dict[int, dict] = {}
 
         async for morceau in flux:
+            if t_morceau is None:
+                t_morceau = time.perf_counter()
             if not morceau.choices:
                 continue
             delta = morceau.choices[0].delta
@@ -318,6 +323,15 @@ async def phrases_llm(historique: list[dict], faits: list[str] | None = None):
                     cumul["name"] += appel.function.name or ""
                     cumul["arguments"] += appel.function.arguments or ""
             texte = delta.content or ""
+            if texte and t_texte is None:
+                t_texte = time.perf_counter()
+                logger.info(
+                    "LLM : reponse du proxy %d ms, 1er morceau +%d ms, 1er texte +%d ms (%d messages)",
+                    (t_entetes - t_envoi) * 1000,
+                    (t_morceau - t_entetes) * 1000,
+                    (t_texte - t_morceau) * 1000,
+                    len(messages),
+                )
             dit += texte
             tampon += texte
             phrases, tampon = decouper_phrases(tampon)
