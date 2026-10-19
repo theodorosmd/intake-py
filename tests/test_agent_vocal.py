@@ -179,3 +179,33 @@ def test_les_jours_relatifs_sont_calcules_par_le_code():
     assert agent_vocal.normaliser_arguments("save_intake", {"accident_date": "2026-10-01"}) == {
         "accident_date": "2026-10-01"
     }
+
+
+def test_une_synthese_bloquee_est_relancee(monkeypatch):
+    """OpenAI laisse parfois une requête sans réponse : on la jette et on recommence."""
+    monkeypatch.setattr(agent_vocal, "DELAI_VOIX", 0.05)
+    appels = []
+
+    async def aspeech(**_):
+        appels.append(1)
+        if len(appels) == 1:
+            await asyncio.sleep(10)  # la première reste bloquée
+        return SimpleNamespace(content=b"mp3")
+
+    monkeypatch.setattr(agent_vocal.litellm, "aspeech", aspeech)
+    assert asyncio.run(agent_vocal.synthese_vocale("Hello, how can I help?")) == b"mp3"
+    assert len(appels) == 2
+
+
+def test_une_synthese_toujours_bloquee_finit_par_echouer(monkeypatch):
+    monkeypatch.setattr(agent_vocal, "DELAI_VOIX", 0.05)
+
+    async def aspeech(**_):
+        await asyncio.sleep(10)
+
+    monkeypatch.setattr(agent_vocal.litellm, "aspeech", aspeech)
+    try:
+        asyncio.run(agent_vocal.synthese_vocale("Hello again."))
+    except TimeoutError:
+        return
+    raise AssertionError("une synthèse sans réponse doit lever TimeoutError")

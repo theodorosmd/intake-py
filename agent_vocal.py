@@ -1,5 +1,6 @@
 """Le cerveau et la voix de l'agent : LLM et synthèse vocale, via LiteLLM."""
 
+import asyncio
 import json
 import logging
 import os
@@ -414,24 +415,45 @@ async def reponse_llm(historique: list[dict]) -> str:
 _voix_deja_faites: dict[str, bytes] = {}
 
 
-async def synthese_vocale(texte: str) -> bytes:
-    """Transforme le texte en voix (fichier mp3).
+# Une synthèse normale dure 1 à 3 s ; au-delà de DELAI_VOIX secondes, la requête est bloquée.
+DELAI_VOIX = 5
+ESSAIS_VOIX = 3
 
-    Les phrases déjà synthétisées (la salutation, par exemple) sont gardées
-    en mémoire : la deuxième fois, elles partent sans attendre.
-    """
-    if texte in _voix_deja_faites:
-        logger.info("Voix : deja prete (0 ms)")
-        return _voix_deja_faites[texte]
-    debut = time.perf_counter()
+
+async def _demander_voix(texte: str) -> bytes:
     reponse = await litellm.aspeech(
         model=os.getenv("TTS_MODEL", "openai/gpt-4o-mini-tts"),
         voice=os.getenv("TTS_VOICE", "alloy"),
         input=texte,
         response_format="mp3",
-        timeout=15,
     )
-    audio = reponse.content
+    return reponse.content
+
+
+async def synthese_vocale(texte: str) -> bytes:
+    """Transforme le texte en voix (fichier mp3).
+
+    Les phrases déjà synthétisées (la salutation, par exemple) sont gardées
+    en mémoire : la deuxième fois, elles partent sans attendre.
+
+    OpenAI laisse parfois une requête sans réponse (mesuré le 19 octobre : une sur
+    vingt à une sur deux selon le modèle). On ne l'attend pas : au bout de
+    DELAI_VOIX secondes on la jette et on en lance une neuve, qui répond en 1 à 2 s.
+    """
+    if texte in _voix_deja_faites:
+        logger.info("Voix : deja prete (0 ms)")
+        return _voix_deja_faites[texte]
+    debut = time.perf_counter()
+    for essai in range(1, ESSAIS_VOIX + 1):
+        try:
+            audio = await asyncio.wait_for(_demander_voix(texte), DELAI_VOIX)
+            break
+        except TimeoutError:
+            logger.warning(
+                "Voix : essai %d sans reponse apres %d s", essai, DELAI_VOIX
+            )
+    else:
+        raise TimeoutError(f"synthese vocale sans reponse apres {ESSAIS_VOIX} essais")
     if texte == SALUTATION:
         _voix_deja_faites[texte] = audio
     logger.info(
