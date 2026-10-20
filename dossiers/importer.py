@@ -135,7 +135,9 @@ async def _evenements(magasin: Magasin, matter_id: str, doc_id: str, pages: list
             jour = _date_valide(e.get("date"))
             trouvee = citations.date_dans_page(jour, par_page[page]) if jour else "complete"
             notes = [avertissement] if avertissement else []
-            if trouvee is None:
+            if jour is None:
+                notes.append("date absente : à renseigner")
+            elif trouvee is None:
                 notes.append("date non retrouvée dans la page : à vérifier")
             elif trouvee == "sans_annee":
                 notes.append("année non écrite dans la page (déduite)")

@@ -19,6 +19,7 @@ async def appeler_json(consigne: str, texte: str) -> dict:
         messages=[{"role": "system", "content": consigne}, {"role": "user", "content": texte}],
         response_format={"type": "json_object"},
         temperature=0,
-        timeout=60,
+        drop_params=True,  # les modèles à raisonnement refusent temperature=0 : litellm l'écarte au lieu d'échouer
+        timeout=180,  # un modèle à raisonnement répond plus lentement
     )
     return json.loads(reponse.choices[0].message.content)

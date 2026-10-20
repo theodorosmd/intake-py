@@ -199,6 +199,21 @@ def test_une_date_non_retrouvee_est_signalee_sans_etre_supprimee(magasin):
     assert "date non retrouvée" in e["note"]
 
 
+def test_un_evenement_sans_date_est_garde_mais_signale(magasin):
+    magasin.creer_affaire("A1", "x")
+    pieces = fixtures.generer()
+
+    async def modele(consigne, texte):
+        if consigne == CONSIGNE_CLASSEMENT:
+            return {"type": "courriel", "date": None, "parties": [], "titre": ""}
+        return {"events": [{"date": None, "title": "Livraison annoncée pour fin mars", "page": 1,
+                            "quote": "nous pourrons livrer la machine vers le 31 mars"}]}
+
+    asyncio.run(importer(magasin, "A1", "email-2026-03-10.eml", pieces["email-2026-03-10.eml"], modele))
+    (e,) = magasin.evenements("A1")
+    assert e["event_date"] is None and "date absente" in e["note"]
+
+
 def test_un_jour_et_un_mois_sans_annee_sont_acceptes_mais_signales():
     page = "La machine a été livrée le 28 mars alors que le contrat prévoyait le 15 mars."
     assert citations.date_dans_page("2026-03-28", page) == "sans_annee"
