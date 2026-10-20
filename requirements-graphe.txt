@@ -1,0 +1,8 @@
+# Version « graphe » du pipeline des dossiers (dossiers/graphe/). Optionnel : à installer EN PLUS de requirements.txt,
+#   pip install -r requirements.txt -r requirements-graphe.txt
+# La passerelle n'en a pas besoin et son image ne l'installe pas.
+#
+# langgraph est épinglé à 1.2.0 : les versions 1.2.1 et suivantes tirent langgraph-sdk 0.4, qui exige websockets<17,
+# alors que la passerelle épingle websockets 17.2 (flux audio Telnyx). À revoir quand langgraph-sdk le permettra.
+langgraph==1.2.0
+langgraph-checkpoint-postgres==3.2.0

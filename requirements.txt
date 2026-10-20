@@ -9,3 +9,5 @@ pynacl==1.6.2
 mcp==2.3.0
 psycopg[binary]==3.3.6
 psycopg-pool==3.3.3
+pypdf==6.21.1
+reportlab==5.0.1
