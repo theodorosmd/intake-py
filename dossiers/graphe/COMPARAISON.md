@@ -47,4 +47,4 @@ Le surcoût de temps est d'environ 5 ms par nœud avec Postgres, face à plusieu
 - **Le code simple**, quand les étapes s'enchaînent d'un trait. C'est le cas de l'import seul, et de tout ce qui est en direct, comme l'agent vocal.
 - Ce qu'il faut d'abord regarder dans les deux cas : un état en base qui dit où l'on en est. Le graphe le fournit, mais on peut aussi l'écrire à la main.
 
-Ce qui n'a pas été fait : un essai avec le vrai modèle (`python -m dossiers.graphe.demo`, qui demande la clé du modèle) ; tous les chiffres ci-dessus viennent du faux modèle.
+Essai avec le vrai modèle (gpt-4.1-mini, mode mémoire, cas « vente », 20 octobre 2026) : 10 pièces importées, 10 événements proposés dont 3 signalés, pause avant l'analyse, 7 événements confirmés après validation, 3 questions analysées. Ce qui n'a pas été fait : mesurer la durée et le coût de cet essai, le comparer au code simple avec le vrai modèle, et reprendre sur Postgres avec le vrai modèle (la reprise n'est testée qu'avec le faux). Les chiffres de temps ci-dessus viennent du faux modèle.
