@@ -16,6 +16,7 @@ from starlette.routing import Route
 import confidentialite
 import mcp_outils
 import rag
+import staff_api
 from stockage import STOCKAGE, CreneauPris
 from telnyx_signature import evenement_verifie
 from telnyx_stream import router as telnyx_router
@@ -75,6 +76,7 @@ class IntakeCase(BaseModel):
     has_insurance: bool | None = None
     accident_location: str | None = None
     injury_details: str | None = None
+    call_id: str | None = None  # ajouté par l'agent : relie le dossier au résumé de l'appel
 
 
 class CallEnded(BaseModel):
@@ -252,3 +254,14 @@ MCP = mcp_outils.creer_serveur(
 )
 POINT_MCP = mcp_outils.PointAccesMCP(MCP)
 app.router.routes.append(Route("/mcp", POINT_MCP))
+
+
+# ---------- API du tableau de bord du cabinet (application web intake-desk) ----------
+
+app.include_router(
+    staff_api.creer_routeur(
+        stockage=STOCKAGE,
+        est_urgent=lambda dossier: is_urgent(IntakeCase(**dossier)),
+        reserver=_reserver,
+    )
+)

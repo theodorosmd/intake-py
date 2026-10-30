@@ -74,6 +74,7 @@ cloudflared tunnel --url http://localhost:8000   # public URL for Telnyx
 | `LOGS_EN_CLAIR=1` | Disable log masking for local debugging only |
 | `TELNYX_PUBLIC_KEY` | Telnyx public key used to verify webhook signatures |
 | `MCP_TOKEN` | Bearer token for the MCP endpoint; without it `/mcp` answers 503 |
+| `STAFF_API_TOKEN` | Bearer token for the staff dashboard API (`/staff/*`); without it every staff route answers 503 |
 | `DATABASE_URL` | Postgres for cases, bookings and call summaries; without it they are kept in memory (tests, replay) |
 
 ## Deployment (Kubernetes)
@@ -139,6 +140,30 @@ without a configured token the endpoint stays closed.
 claude mcp add --transport http pi-intake https://intake.theappstudio.co/mcp \
   --header "Authorization: Bearer $MCP_TOKEN"
 ```
+
+## Staff dashboard API
+
+The firm's web app (attorneys and intake staff, in the `intake-desk` folder of the `ai-labs` repo)
+reads and updates the same data through `/staff/*` (`staff_api.py`). The web app calls it from its
+server only, so the token never reaches a browser.
+
+| Route | Does |
+|---|---|
+| `GET /staff/overview` | Counts by stage, urgent open cases, unassigned cases, upcoming consultations, cases per day |
+| `GET /staff/cases`, `GET /staff/cases/{id}` | Cases with urgency, days since the accident, stage, attorney, consultation; the detail adds the call summary, the transcript and the case log |
+| `PATCH /staff/cases/{id}` | Changes the stage (`new`, `contacted`, `consult_booked`, `retained`, `declined`) or the attorney |
+| `POST /staff/cases/{id}/notes` | Adds a note to the case log |
+| `POST`, `DELETE /staff/cases/{id}/consultation` | Books, moves or cancels the caller's consultation, with the phone agent's slots and rules |
+| `GET /staff/consultations`, `GET /staff/calls` | Consultations and call summaries, each linked to its case |
+
+- **Auth:** `Authorization: Bearer <STAFF_API_TOKEN>`. Writes also carry `X-Staff-User` and
+  `X-Staff-Role` (`attorney` or `staff`), set by the web app after sign-in.
+- **Rules:** only an attorney can mark a case retained or declined. Every change of stage, attorney or
+  consultation writes a line in the case log (`case_notes`), with who did it.
+- **Call link:** the agent adds the Telnyx call id to the case it saves, and the post-call summary keeps
+  the transcript, so the attorney reads the call that produced the case.
+- **Phone matching:** consultations are matched to cases on the phone number without the US country
+  code, so `+1 (555) 123-4567` and `555 123 4567` are the same caller.
 
 ## Tests and replay
 

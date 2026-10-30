@@ -19,6 +19,26 @@ CREATE TABLE IF NOT EXISTS consultations (
     booked_at   timestamptz NOT NULL DEFAULT clock_timestamp()
 );
 
+-- Suivi d'un dossier par le cabinet (tableau de bord) : étape et avocat chargé.
+-- Une ligne n'existe qu'une fois le dossier touché ; sans elle, le dossier est « new ».
+CREATE TABLE IF NOT EXISTS case_followup (
+    case_id    text PRIMARY KEY REFERENCES intake_cases ON DELETE CASCADE,
+    status     text NOT NULL DEFAULT 'new',   -- new | contacted | consult_booked | retained | declined
+    assignee   text,
+    updated_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+-- Journal d'un dossier : notes de l'équipe et changements (étape, avocat, rendez-vous).
+CREATE TABLE IF NOT EXISTS case_notes (
+    note_id    bigserial PRIMARY KEY,
+    case_id    text NOT NULL REFERENCES intake_cases ON DELETE CASCADE,
+    kind       text NOT NULL,                 -- note | event
+    author     text NOT NULL,
+    role       text NOT NULL,                 -- attorney | staff
+    body       text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+CREATE INDEX IF NOT EXISTS case_notes_case ON case_notes (case_id, created_at);
+
 CREATE TABLE IF NOT EXISTS call_summaries (
     call_id     text PRIMARY KEY,
     data        jsonb NOT NULL,

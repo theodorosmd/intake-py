@@ -17,6 +17,7 @@ import websockets
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
+import agent_vocal
 from conversation import Conversation
 from stockage import STOCKAGE
 from telnyx_signature import evenement_verifie
@@ -183,6 +184,8 @@ async def media_stream(ws: WebSocket):
             if evenement == "start":
                 logger.info("Stream demarre : %s", message["start"].get("media_format"))
                 id_appel = message["start"].get("call_control_id") or id_appel
+                # La tâche de l'agent copie le contexte à sa création : elle connaît l'appel.
+                agent_vocal.APPEL_EN_COURS.set(id_appel)
                 agent = asyncio.create_task(distribuer_tours(conv, tours))
                 try:
                     stt = await ouvrir_stt()
@@ -240,7 +243,8 @@ async def resumer_appel(id_appel: str, texte: str) -> None:
         await asyncio.to_thread(
             STOCKAGE.enregistrer_resume,
             id_appel,
-            {**resume, "received_at": datetime.now(UTC).isoformat()},
+            # La transcription reste avec le résumé : l'avocat la relit dans le tableau de bord.
+            {**resume, "transcript": texte, "received_at": datetime.now(UTC).isoformat()},
         )
         logger.info("Resume de l'appel : %s", resume)
     except httpx.HTTPError as erreur:

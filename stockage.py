@@ -12,7 +12,7 @@ import json
 import math
 import os
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
@@ -35,6 +35,13 @@ class Stockage(Protocol):
     def rendez_vous(self) -> list[tuple[datetime, str]]: ...
     def enregistrer_resume(self, call_id: str, resume: dict) -> None: ...
     def resumes(self) -> list[dict]: ...
+    # Suivi par le cabinet (tableau de bord du personnel, voir staff_api.py).
+    def dossiers_suivis(self) -> list[dict]: ...
+    def mettre_a_jour_suivi(self, case_id: str, changements: dict) -> None: ...
+    def ajouter_note(self, case_id: str, kind: str, auteur: str, role: str, texte: str) -> dict: ...
+    def notes(self, case_id: str) -> list[dict]: ...
+    def rendez_vous_detailles(self) -> list[dict]: ...
+    def annuler(self, cle_tel: str) -> datetime | None: ...
     # Base de connaissances (RAG). `vider` n'y touche pas : ce n'est pas une donnée d'appel.
     def empreintes_connaissances(self) -> dict[str, str]: ...
     def enregistrer_connaissances(self, morceaux_vecteurs: list) -> None: ...
@@ -51,6 +58,10 @@ class Memoire:
         self._par_tel: dict[str, datetime] = {}
         self._resumes: dict[str, dict] = {}
         self._connaissances: dict[str, tuple] = {}  # id -> (morceau, vecteur)
+        self._crees: dict[str, datetime] = {}
+        self._suivis: dict[str, dict] = {}
+        self._notes: list[dict] = []
+        self._reserve_le: dict[datetime, tuple[str, datetime]] = {}  # créneau -> (clé tél., date)
 
     def preparer(self) -> None:
         pass
@@ -59,11 +70,16 @@ class Memoire:
         pass
 
     def vider(self) -> None:
-        for table in (self._dossiers, self._reservations, self._par_tel, self._resumes):
+        for table in (
+            self._dossiers, self._reservations, self._par_tel, self._resumes,
+            self._crees, self._suivis, self._reserve_le,
+        ):
             table.clear()
+        self._notes.clear()
 
     def enregistrer_dossier(self, case_id: str, dossier: dict) -> None:
         self._dossiers[case_id] = dossier
+        self._crees[case_id] = datetime.now(UTC)
 
     def dossiers(self) -> list[tuple[str, dict]]:
         return list(reversed(self._dossiers.items()))  # le plus récent d'abord
@@ -80,8 +96,11 @@ class Memoire:
         ancien = self._par_tel.pop(cle_tel, None)
         if ancien is not None:
             self._reservations.pop(ancien, None)
+        if ancien is not None:
+            self._reserve_le.pop(ancien, None)
         self._reservations[creneau] = nom
         self._par_tel[cle_tel] = creneau
+        self._reserve_le[creneau] = (cle_tel, datetime.now(UTC))
         return ancien
 
     def rendez_vous(self) -> list[tuple[datetime, str]]:
@@ -92,6 +111,56 @@ class Memoire:
 
     def resumes(self) -> list[dict]:
         return list(reversed(self._resumes.values()))
+
+    def dossiers_suivis(self) -> list[dict]:
+        return [
+            {
+                "case_id": case_id,
+                "data": dossier,
+                "created_at": self._crees[case_id],
+                **self._suivis.get(case_id, {"status": "new", "assignee": None, "updated_at": None}),
+            }
+            for case_id, dossier in self.dossiers()
+        ]
+
+    def mettre_a_jour_suivi(self, case_id: str, changements: dict) -> None:
+        suivi = self._suivis.setdefault(case_id, {"status": "new", "assignee": None})
+        suivi.update(changements)
+        suivi["updated_at"] = datetime.now(UTC)
+
+    def ajouter_note(self, case_id: str, kind: str, auteur: str, role: str, texte: str) -> dict:
+        note = {
+            "note_id": len(self._notes) + 1,
+            "case_id": case_id,
+            "kind": kind,
+            "author": auteur,
+            "role": role,
+            "body": texte,
+            "created_at": datetime.now(UTC),
+        }
+        self._notes.append(note)
+        return note
+
+    def notes(self, case_id: str) -> list[dict]:
+        return [n for n in self._notes if n["case_id"] == case_id]
+
+    def rendez_vous_detailles(self) -> list[dict]:
+        return [
+            {
+                "slot": creneau,
+                "caller_name": nom,
+                "phone_key": self._reserve_le[creneau][0],
+                "booked_at": self._reserve_le[creneau][1],
+            }
+            for creneau, nom in self.rendez_vous()
+        ]
+
+    def annuler(self, cle_tel: str) -> datetime | None:
+        creneau = self._par_tel.pop(cle_tel, None)
+        if creneau is not None:
+            self._reservations.pop(creneau, None)
+            self._reserve_le.pop(creneau, None)
+        return creneau
 
     def empreintes_connaissances(self) -> dict[str, str]:
         return {i: m.empreinte for i, (m, _) in self._connaissances.items()}
@@ -156,7 +225,9 @@ class Postgres:
 
     def vider(self) -> None:
         with self._connexion() as connexion:
-            connexion.execute("TRUNCATE intake_cases, consultations, call_summaries")
+            connexion.execute(
+                "TRUNCATE intake_cases, case_followup, case_notes, consultations, call_summaries"
+            )
 
     def enregistrer_dossier(self, case_id: str, dossier: dict) -> None:
         with self._connexion() as connexion:
@@ -224,6 +295,80 @@ class Postgres:
                     "SELECT data FROM call_summaries ORDER BY received_at DESC"
                 )
             ]
+
+    def dossiers_suivis(self) -> list[dict]:
+        with self._connexion() as connexion:
+            lignes = connexion.execute(
+                """SELECT c.case_id, c.data, c.created_at,
+                          coalesce(f.status, 'new'), f.assignee, f.updated_at
+                   FROM intake_cases c LEFT JOIN case_followup f USING (case_id)
+                   ORDER BY c.created_at DESC, c.case_id"""
+            ).fetchall()
+        return [
+            {
+                "case_id": case_id, "data": data, "created_at": cree,
+                "status": statut, "assignee": avocat, "updated_at": modifie,
+            }
+            for case_id, data, cree, statut, avocat, modifie in lignes
+        ]
+
+    def mettre_a_jour_suivi(self, case_id: str, changements: dict) -> None:
+        colonnes = [c for c in ("status", "assignee") if c in changements]
+        if not colonnes:
+            return
+        # Noms de colonnes tirés d'une liste fixe, jamais de la requête : pas d'injection possible.
+        valeurs = [changements[c] for c in colonnes]
+        mises_a_jour = ", ".join(f"{c} = EXCLUDED.{c}" for c in colonnes)
+        with self._connexion() as connexion:
+            connexion.execute(
+                f"""INSERT INTO case_followup (case_id, {", ".join(colonnes)})
+                    VALUES (%s, {", ".join(["%s"] * len(colonnes))})
+                    ON CONFLICT (case_id) DO UPDATE SET {mises_a_jour}, updated_at = clock_timestamp()""",
+                (case_id, *valeurs),
+            )
+
+    def ajouter_note(self, case_id: str, kind: str, auteur: str, role: str, texte: str) -> dict:
+        with self._connexion() as connexion:
+            note_id, cree = connexion.execute(
+                """INSERT INTO case_notes (case_id, kind, author, role, body)
+                   VALUES (%s, %s, %s, %s, %s) RETURNING note_id, created_at""",
+                (case_id, kind, auteur, role, texte),
+            ).fetchone()
+        return {
+            "note_id": note_id, "case_id": case_id, "kind": kind, "author": auteur,
+            "role": role, "body": texte, "created_at": cree,
+        }
+
+    def notes(self, case_id: str) -> list[dict]:
+        with self._connexion() as connexion:
+            lignes = connexion.execute(
+                """SELECT note_id, kind, author, role, body, created_at FROM case_notes
+                   WHERE case_id = %s ORDER BY created_at, note_id""",
+                (case_id,),
+            ).fetchall()
+        return [
+            {
+                "note_id": i, "case_id": case_id, "kind": k, "author": a,
+                "role": r, "body": b, "created_at": c,
+            }
+            for i, k, a, r, b, c in lignes
+        ]
+
+    def rendez_vous_detailles(self) -> list[dict]:
+        with self._connexion() as connexion:
+            lignes = connexion.execute(
+                "SELECT slot, caller_name, phone_key, booked_at FROM consultations ORDER BY slot"
+            ).fetchall()
+        return [
+            {"slot": s, "caller_name": n, "phone_key": k, "booked_at": b} for s, n, k, b in lignes
+        ]
+
+    def annuler(self, cle_tel: str) -> datetime | None:
+        with self._connexion() as connexion:
+            ligne = connexion.execute(
+                "DELETE FROM consultations WHERE phone_key = %s RETURNING slot", (cle_tel,)
+            ).fetchone()
+        return ligne[0] if ligne else None
 
 
     def empreintes_connaissances(self) -> dict[str, str]:

@@ -96,3 +96,47 @@ def test_les_dates_reviennent_a_l_heure_de_new_york(stockage):
     (slot, _), = stockage.rendez_vous()
     assert slot.astimezone(NEW_YORK).hour == 14
     assert slot.utcoffset() == creneau(3, 14).utcoffset()
+
+
+# --- Suivi par le cabinet (tableau de bord) ---
+
+
+def test_un_dossier_neuf_est_new_sans_avocat(stockage):
+    stockage.enregistrer_dossier("a", {"caller_name": "John"})
+    (ligne,) = stockage.dossiers_suivis()
+    assert (ligne["case_id"], ligne["status"], ligne["assignee"]) == ("a", "new", None)
+    assert ligne["data"] == {"caller_name": "John"}
+    assert ligne["created_at"].tzinfo is not None
+
+
+def test_suivi_mis_a_jour_champ_par_champ(stockage):
+    stockage.enregistrer_dossier("a", {"caller_name": "John"})
+    stockage.mettre_a_jour_suivi("a", {"assignee": "Dana Reyes"})
+    stockage.mettre_a_jour_suivi("a", {"status": "contacted"})
+    (ligne,) = stockage.dossiers_suivis()
+    assert (ligne["status"], ligne["assignee"]) == ("contacted", "Dana Reyes")
+    stockage.mettre_a_jour_suivi("a", {"assignee": None})
+    assert stockage.dossiers_suivis()[0]["assignee"] is None
+    assert stockage.dossiers_suivis()[0]["status"] == "contacted"
+
+
+def test_notes_dans_l_ordre_et_par_dossier(stockage):
+    stockage.enregistrer_dossier("a", {"caller_name": "John"})
+    stockage.enregistrer_dossier("b", {"caller_name": "Ann"})
+    stockage.ajouter_note("a", "note", "Maria", "staff", "Left a voicemail")
+    stockage.ajouter_note("b", "note", "Maria", "staff", "Other case")
+    stockage.ajouter_note("a", "event", "Dana", "attorney", "Status: New → Contacted")
+    notes = stockage.notes("a")
+    assert [n["body"] for n in notes] == ["Left a voicemail", "Status: New → Contacted"]
+    assert notes[1]["kind"] == "event" and notes[1]["role"] == "attorney"
+
+
+def test_rendez_vous_detailles_puis_annulation(stockage):
+    stockage.reserver("15551234567", "John", creneau(3))
+    (rdv,) = stockage.rendez_vous_detailles()
+    assert (rdv["slot"], rdv["caller_name"], rdv["phone_key"]) == (creneau(3), "John", "15551234567")
+    assert rdv["booked_at"].tzinfo is not None
+    assert stockage.annuler("15551234567") == creneau(3)
+    assert stockage.annuler("15551234567") is None
+    assert stockage.rendez_vous_detailles() == []
+    assert stockage.creneaux_pris() == set()

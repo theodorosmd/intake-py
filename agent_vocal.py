@@ -1,6 +1,7 @@
 """Le cerveau et la voix de l'agent : LLM et synthèse vocale, via LiteLLM."""
 
 import asyncio
+import contextvars
 import json
 import logging
 import os
@@ -18,6 +19,9 @@ load_dotenv()
 logger = logging.getLogger("uvicorn.error")
 
 GATEWAY_URL = os.getenv("GATEWAY_URL", "http://127.0.0.1:8000")
+# Identifiant Telnyx de l'appel en cours, posé par telnyx_stream avant de lancer l'agent.
+# Le dossier enregistré le reprend : le cabinet retrouve ainsi le résumé et la transcription de l'appel.
+APPEL_EN_COURS: contextvars.ContextVar[str | None] = contextvars.ContextVar("appel_en_cours", default=None)
 MAX_RONDES_OUTILS = 3  # le LLM peut enchaîner quelques outils, pas tourner en boucle
 
 
@@ -245,6 +249,8 @@ def normaliser_arguments(nom: str, donnees: dict) -> dict:
             return donnees
         aujourdhui = datetime.now(ZoneInfo("America/New_York")).date()
         donnees.setdefault("accident_date", (aujourdhui - timedelta(days=jours)).isoformat())
+    if nom == "save_intake" and APPEL_EN_COURS.get():
+        donnees["call_id"] = APPEL_EN_COURS.get()
     return donnees
 
 

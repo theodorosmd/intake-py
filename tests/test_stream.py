@@ -217,3 +217,12 @@ def test_un_worker_en_panne_ne_casse_pas_la_fin_de_l_appel(monkeypatch):
     FauxClientHttp.envoye, FauxClientHttp.erreur = [], httpx.ConnectError("down")
     monkeypatch.setattr(telnyx_stream.httpx, "AsyncClient", FauxClientHttp)
     asyncio.run(telnyx_stream.resumer_appel("v3:abc", "hello"))  # ne doit pas lever
+
+
+def test_la_transcription_est_gardee_avec_le_resume(monkeypatch):
+    FauxClientHttp.envoye, FauxClientHttp.erreur = [], None
+    monkeypatch.setattr(telnyx_stream.httpx, "AsyncClient", FauxClientHttp)
+    telnyx_stream.STOCKAGE.vider()
+    asyncio.run(telnyx_stream.resumer_appel("v3:xyz", "I slipped at the store"))
+    (resume,) = telnyx_stream.STOCKAGE.resumes()
+    assert resume["transcript"] == "I slipped at the store"

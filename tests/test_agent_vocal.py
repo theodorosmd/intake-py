@@ -225,3 +225,15 @@ def test_une_synthese_toujours_bloquee_finit_par_echouer(monkeypatch):
     except TimeoutError:
         return
     raise AssertionError("une synthèse sans réponse doit lever TimeoutError")
+
+
+def test_le_dossier_porte_l_identifiant_de_l_appel():
+    jeton = agent_vocal.APPEL_EN_COURS.set("v3:abc")
+    try:
+        donnees = agent_vocal.normaliser_arguments("save_intake", {"caller_name": "John"})
+        autre = agent_vocal.normaliser_arguments("book_consultation", {"caller_name": "John"})
+    finally:
+        agent_vocal.APPEL_EN_COURS.reset(jeton)
+    assert donnees["call_id"] == "v3:abc"
+    assert "call_id" not in autre
+    assert "call_id" not in agent_vocal.normaliser_arguments("save_intake", {"caller_name": "John"})
