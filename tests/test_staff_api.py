@@ -174,6 +174,8 @@ def test_reserver_depuis_le_dossier_puis_annuler():
 
     cas = client.delete(f"/staff/cases/{case_id}/consultation", headers=SECRETARIAT).json()
     assert cas["consultation"] is None and cas["status"] == "contacted"
+    assert cas["notes"][-1]["body"].startswith("Consultation of Monday,")
+    assert cas["notes"][-1]["body"].endswith("at 2 PM cancelled")
     assert client.delete(f"/staff/cases/{case_id}/consultation", headers=SECRETARIAT).status_code == 404
 
 

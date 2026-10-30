@@ -45,6 +45,11 @@ def cle_tel(phone: str) -> str:
     return chiffres[1:] if len(chiffres) == 11 and chiffres.startswith("1") else chiffres
 
 
+def a_voix_haute(creneau: datetime) -> str:
+    """« Monday, November 3 at 2 PM », heure du cabinet (même tournure que main.a_voix_haute)."""
+    return creneau.astimezone(NEW_YORK).strftime("%A, %B %d at %I %p").replace(" 0", " ")
+
+
 def verifier_jeton(authorization: Annotated[str, Header()] = "") -> None:
     attendu = os.environ.get("STAFF_API_TOKEN", "")
     if not attendu:
@@ -199,7 +204,7 @@ def creer_routeur(
         if ancien is None:
             raise HTTPException(status_code=404, detail="No consultation for this case")
         stockage.ajouter_note(
-            case_id, "event", qui.nom, qui.role, f"Consultation of {ancien.isoformat()} cancelled"
+            case_id, "event", qui.nom, qui.role, f"Consultation of {a_voix_haute(ancien)} cancelled"
         )
         if ligne["status"] == "consult_booked":
             stockage.mettre_a_jour_suivi(case_id, {"status": "contacted"})
